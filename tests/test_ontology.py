@@ -189,3 +189,18 @@ def test_queries_on_the_reviewed_schema_anchor_a_page():
     sql = ["SELECT COUNT(*) FROM `samples`.`tpch`.`orders` o JOIN samples.tpch.lineitem l ON o.o_orderkey = l.l_orderkey"]
     assert ontology.assess("ok", cites, {}, "orders.o_totalprice", ["uc:samples.tpch.orders.o_totalprice"], sql)[0] is True
     assert ontology.assess("ok", cites, {}, "orders.o_totalprice", ["uc:samples.tpch.orders.o_totalprice"], ["SELECT 1"])[0] is False
+
+
+def test_json_body_containing_data_colon_is_not_treated_as_an_event_stream(monkeypatch):
+    import json as _json
+
+    class R:
+        status_code, headers = 200, {"content-type": "application/json", "mcp-session-id": "s"}
+        text = _json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"structuredContent": {"note": "metadata: data: here"}}})
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(ontology.requests, "post", lambda *a, **k: R())
+    out = ontology.GenieOne("https://ws", "t")._rpc("tools/call", {})
+    assert out["structuredContent"]["note"] == "metadata: data: here"

@@ -347,8 +347,11 @@ class GenieOne:
         r.raise_for_status()
         self.sid = r.headers.get("mcp-session-id", self.sid)
         body = r.text
-        if "data:" in body:
-            body = [l[5:] for l in body.splitlines() if l.startswith("data:")][-1]
+        if "text/event-stream" in r.headers.get("content-type", "") or body.lstrip().startswith(("event:", "data:")):
+            events = [l[5:].strip() for l in body.splitlines() if l.startswith("data:")]
+            if not events:
+                raise RuntimeError("empty event stream from Genie One")
+            body = events[-1]
         out = json.loads(body)
         if "error" in out:
             raise RuntimeError(out["error"].get("message", "MCP error"))
@@ -374,6 +377,11 @@ def _ask_one(q: Question, client: GenieOne | None, facts: dict[str, Any]) -> Ans
         return Answer(q.id, "unavailable", error="Genie One is not configured or not reachable")
     try:
         ps = client.ask(q.text)
+    except requests.HTTPError as e:
+        code = e.response.status_code if e.response is not None else 0
+        status = "unavailable" if code in (401, 403) else "error"   # only permission errors are access gaps
+        log(f"Genie One question {q.id} failed: HTTP {code}")
+        return Answer(q.id, status, error=f"HTTP {code}")
     except Exception as e:  # noqa: BLE001
         log(f"Genie One question {q.id} failed: {str(e)[:120]}")
         return Answer(q.id, "error", error=str(e)[:200])

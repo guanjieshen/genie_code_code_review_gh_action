@@ -102,6 +102,8 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
             ev = evidence.collect(w, imp, warehouse, principal)
         write_json(s.out_dir / "evidence.json", ev.facts)
 
+    notes: list[str] = []
+
     # ---- ontology: plan business questions; answer from Unity Catalog; ask Genie One only in detailed mode
     ontology_on = s.ontology and s.semantic != "off"
     questions, answers = [], []
@@ -122,8 +124,10 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                     ev.access.genie_one(classify(e))
                 answers = ontology.ask(questions, factory, ev.facts)
                 for a in answers:
-                    if a.status in ("error", "unavailable"):
+                    if a.status == "unavailable":          # permission problems are access gaps
                         ev.access.genie_one(a.error)
+                    elif a.status == "error":              # anything else is an unresolved question, noted once
+                        notes.append(f"Genie One question failed: {a.error[:100]}")
                 ev.facts.update(ontology.to_evidence(questions, answers))
             write_json(s.out_dir / "ontology.json", {"questions": [q.to_dict() for q in questions],
                                                      "answers": [a.__dict__ for a in answers]})
@@ -137,7 +141,6 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
     log(f"{len(plan)} planned checks, {len(det)} deterministic findings")
 
     # ---- Genie review (optional; exact checks above always post)
-    notes: list[str] = []
     genie_ran = False
     genie_code_status = "not needed"
     gen: list[Finding] = []
