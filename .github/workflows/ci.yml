@@ -21,6 +21,8 @@ jobs:
             exit 1
           fi
           uv lock --check
+          uv export --frozen --no-dev --no-emit-project --format requirements-txt -q -o /tmp/requirements.lock
+          diff <(grep -v '^#' /tmp/requirements.lock) <(grep -v '^#' requirements.lock) || { echo "::error::requirements.lock is out of date. Run: uv export --frozen --no-dev --no-emit-project --format requirements-txt -o requirements.lock"; exit 1; }
       - name: Unit tests
         run: uv run --frozen pytest -q
 
