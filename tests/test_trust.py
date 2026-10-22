@@ -36,6 +36,7 @@ def test_write_home_allowlists_genie_one_tools(tmp_path):
     assert 'enabled_tools = ["genie_ask", "genie_poll_response", "genie_get_query_result"]' in cfg
     assert "genie_cancel_response" not in cfg
     assert 'default_tools_approval_mode = "approve"' in cfg
+    assert '"-m", "genie_review.token", "--profile", "p"' in cfg   # works for service principals, not only user logins
 
 
 def test_monorepo_config_is_read_from_bundle_dir(tmp_path):
