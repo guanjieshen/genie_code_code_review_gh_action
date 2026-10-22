@@ -1,0 +1,52 @@
+resources:
+  jobs:
+    orders_etl:
+      name: genie_review_demo_orders_etl
+      tasks:
+        - task_key: silver
+          spark_python_task:
+            python_file: ../src/silver_orders.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: default
+        - task_key: gold
+          depends_on:
+            - task_key: silver
+          sql_task:
+            file:
+              path: ../src/gold_revenue.sql
+            warehouse_id: ${var.warehouse_id}
+            parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+        - task_key: segment_revenue_v2
+          depends_on:
+            - task_key: silver
+          sql_task:
+            file:
+              path: ../src/gold_segment_revenue_v2.sql
+            warehouse_id: ${var.warehouse_id}
+            parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+        - task_key: exec_kpis
+          depends_on:
+            - task_key: gold
+          spark_python_task:
+            python_file: ../src/exec_kpis.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          job_cluster_key: kpi_cluster
+      job_clusters:
+        - job_cluster_key: kpi_cluster
+          new_cluster:
+            spark_version: 11.3.x-scala2.12
+            num_workers: 1
+            node_type_id: ${var.node_type_id}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "3"
+
+variables:
+  node_type_id:
+    description: Node type for the KPI cluster (demo only; this PR is not meant to be deployed)
+    default: i3.xlarge
