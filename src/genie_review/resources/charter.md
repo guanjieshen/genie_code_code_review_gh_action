@@ -13,4 +13,5 @@ Rules:
 8. `impact` is one sentence on the consequence in business terms (who sees wrong numbers, what breaks), not a restatement of the problem.
 9. Only report a semantic issue when there is an authoritative basis (metric view, certified or deprecated dataset, documented definition). If several definitions are legitimate or the intent is unclear, say so and lower `confidence` instead of asserting one is correct.
 10. Do not call a governance finding an exposure unless evidence shows who can access the data. A missing classification tag is a classification gap.
-11. Use short object names (table name only) in `title`.
+11. Use short object names (table name only) in `title`. A title is 4 to 12 words and states what is wrong (for example "Joins customers to orders on the order key"), not just an object name.
+12. Quote a number (row counts, percentages, amounts) only if it comes from a cited query result, and say where it comes from. Do not assert the direction of an effect ("understates", "overstates") unless the evidence shows it; otherwise say the result is wrong.

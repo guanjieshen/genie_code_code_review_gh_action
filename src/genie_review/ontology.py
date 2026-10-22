@@ -30,7 +30,8 @@ from .util import log
 
 ID_COLUMN = re.compile(r"^(?P<stem>[a-z][a-z0-9]*?)_?(id|key|number|no|code)$", re.I)
 MEASURE = re.compile(r"(revenue|sales|margin|profit|ltv|churn|arr|mrr|gmv|bookings)", re.I)   # business metrics
-INTENT_RANK = {"identifier_relationship": 0, "join_relationship": 0, "metric_definition": 1, "authoritative_source": 2}
+INTENT_RANK = {"identifier_relationship": 0, "join_relationship": 0, "aggregation_grain": 0, "filter_semantics": 0,
+               "metric_definition": 1, "authoritative_source": 2}
 TABLE_PREFIX = re.compile(r"^[a-z]{1,2}_(?=[a-z]+(id|key|number|no|code)$)", re.I)   # TPC-H style: c_custkey, ps_partkey
 ALIASES = {"cust": "customer", "acct": "account", "prod": "product", "emp": "employee", "ord": "order", "sku": "product"}
 
@@ -80,6 +81,13 @@ def entity_of(column: str) -> str | None:
     return ALIASES.get(stem, stem)
 
 
+def table_entity(fqn: str) -> str:
+    """Business entity a table holds one row of: `samples.tpch.orders` -> order, `gold_customers` -> customer."""
+    name = re.sub(r"^(gold|silver|bronze|dim|fact|fct)_", "", _short(fqn).lower())
+    name = name[:-1] if name.endswith("s") and not name.endswith("ss") else name
+    return ALIASES.get(name, name)
+
+
 def _qid(intent: str, concept: str) -> str:
     return "q-" + hashlib.sha1(f"{intent}|{concept}".encode()).hexdigest()[:8]
 
@@ -88,7 +96,7 @@ def _short(fqn: str) -> str:
     return fqn.split(".")[-1]
 
 
-def plan(impact, facts: dict[str, Any], budget: int = 4) -> list[Question]:
+def plan(impact, facts: dict[str, Any], budget: int = 6) -> list[Question]:
     """Questions whose answers could change the review, most valuable first."""
     qs: dict[str, Question] = {}
 
@@ -139,7 +147,48 @@ def plan(impact, facts: dict[str, Any], budget: int = 4) -> list[Question]:
             continue
         qs[qid] = Question(qid, intent, concept, text, objs, (j["entry"], j["line"]), priority)
 
-    # 2. metric definitions: measure-like outputs of tables the PR writes
+    # 2. aggregation grain: a table's measure summed while that table is joined, on its own key, to a finer-grained table
+    for key, refs in impact.refs.items():
+        entry = impact.head.entries[key]["entry"]
+        for a in refs.aggregates:
+            t, ent = a["table"], table_entity(a["table"])
+            for left, right in a["joins"]:
+                mine, other = (left, right) if left[0] == t else (right, left) if right[0] == t else (None, None)
+                if not mine or entity_of(mine[1]) != ent or entity_of(other[1]) == table_entity(other[0]):
+                    continue  # not joined on its own key to a table that references it
+                concept = f"{_short(t)}.{a['column']}"
+                qid = _qid("aggregation_grain", concept)
+                if qid in qs:
+                    continue
+                schema = ".".join(t.split(".")[:2])
+                qs[qid] = Question(qid, "aggregation_grain", concept,
+                                   f"In `{schema}`, this change computes {a['func']}(`{_short(t)}.{a['column']}`) after joining "
+                                   f"`{_short(t)}` to `{_short(other[0])}` on `{mine[1]} = {other[1]}`. At what grain is "
+                                   f"`{a['column']}` defined, what is the cardinality between `{_short(t)}` and `{_short(other[0])}`, "
+                                   "and does this double count? Cite the definition.",
+                                   [f"uc:{t}.{a['column']}", f"uc:{other[0]}.{other[1]}"], (entry, a["line"]), 0)
+
+    # 3. filter meaning: a status/flag/type code used to define a business output
+    for key, refs in impact.refs.items():
+        entry = impact.head.entries[key]["entry"]
+        for f in refs.filters:
+            concept = f"{_short(f['table'])}.{f['column']}"
+            qid = _qid("filter_semantics", concept)
+            if qid in qs:
+                continue
+            outs = ", ".join(f"`{o}`" for o in f.get("outputs", [])) or "its output"
+            meta = facts.get(f"ev:uc:{f['table']}:metadata") or {}
+            comment = {c["name"]: c.get("comment") or "" for c in meta.get("columns", [])}.get(f["column"], "")
+            q = Question(qid, "filter_semantics", concept,
+                         f"In `{'.'.join(f['table'].split('.')[:2])}`, this change filters `{_short(f['table'])}.{f['column']} = "
+                         f"'{f['value']}'` to compute {outs}. What does `{f['column']}` = '{f['value']}' mean, and is this the "
+                         "right column for that purpose (or is there a related column with a different meaning)? Cite the definition.",
+                         [f"uc:{f['table']}.{f['column']}"], (entry, f["line"]), 0 if f.get("outputs") else 1)
+            if comment and str(f["value"]) in comment:
+                q.status, q.uc_answer = "answered_by_uc", f"ev:uc:{f['table']}:metadata"   # the column comment explains the code
+            qs[qid] = q
+
+    # 4. metric definitions: measure-like outputs of tables the PR writes
     for e in impact.head.entries.values():
         for t, cols in (e.get("outputs") or {}).items():
             for c in cols:
@@ -156,7 +205,7 @@ def plan(impact, facts: dict[str, Any], budget: int = 4) -> list[Question]:
                                    "(filters, exclusions, and grain), and which asset is authoritative for it? Cite the definition.",
                                    [f"uc:{t}.{c}"], (e["entry"], e["writes"].get(t, 0)), 1)
 
-    # 3. authoritative source: business tables read without a certified/deprecated signal
+    # 5. authoritative source: business tables read without a certified/deprecated signal
     written = set(impact.graph.tables_with("writes"))
     for t in impact.graph.tables_with("reads"):
         if t in written or not MEASURE.search(_short(t)):
@@ -168,9 +217,11 @@ def plan(impact, facts: dict[str, Any], budget: int = 4) -> list[Question]:
                                f"Is `{t}` the authoritative source for {concept}? If not, which dataset is, and why? Cite the definition.",
                                [f"uc:{t}"], priority=3)
 
-    ordered = sorted(qs.values(), key=lambda q: (q.priority, INTENT_RANK[q.intent], q.concept))
+    # risk first; among equals, questions about more objects first; the concept name only breaks exact ties
+    ordered = sorted(qs.values(), key=lambda q: (q.priority, INTENT_RANK[q.intent], -len(q.objects), q.concept))
     for q in ordered:
-        resolve_with_uc(q, facts)
+        if q.status == "planned":
+            resolve_with_uc(q, facts)
     asked = 0
     for q in ordered:
         if q.status == "answered_by_uc":

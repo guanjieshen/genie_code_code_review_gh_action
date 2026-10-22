@@ -86,3 +86,18 @@ def test_python_notebook_widget_parameters():
 def test_output_columns_from_groupby_agg():
     code = 'df.groupBy(F.to_date("ts").alias("pickup_date")).agg(F.count("*").alias("trips")).withColumn("load_ts", F.now())'
     assert set(select_output_columns(code)) == {"load_ts", "pickup_date", "trips"}
+
+
+def test_sql_aggregates_and_status_filters():
+    sql = """CREATE TABLE IDENTIFIER(:catalog || '.s.out') AS
+SELECT c.seg, SUM(o.o_totalprice) AS order_revenue, COUNT(DISTINCT o.o_orderkey) AS fulfilled_orders
+FROM samples.tpch.orders o JOIN samples.tpch.lineitem l ON o.o_orderkey = l.l_orderkey
+JOIN samples.tpch.customer c ON c.c_custkey = o.o_custkey
+WHERE l.l_linestatus = 'F' GROUP BY c.seg"""
+    r = sql_refs(sql, {"catalog": "main"})
+    agg = r.aggregates[0]
+    assert (agg["table"], agg["column"], agg["func"]) == ("samples.tpch.orders", "o_totalprice", "SUM")
+    assert [["samples.tpch.orders", "o_orderkey"], ["samples.tpch.lineitem", "l_orderkey"]] in agg["joins"]
+    f = r.filters[0]
+    assert (f["table"], f["column"], f["value"]) == ("samples.tpch.lineitem", "l_linestatus", "F")
+    assert "fulfilled_orders" in f["outputs"]

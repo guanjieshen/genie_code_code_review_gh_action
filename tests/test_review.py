@@ -235,3 +235,31 @@ def test_merge_impact_respects_custom_policy():
     f = Finding("deploy.runtime-support", "high", "j.yml", 1, "t", "e", ["ev:workspace:spark_version:x"], category="deployment",
                 confidence="confirmed")
     assert merge_impact(f, Policy(block_severities=["critical", "high"])) == "blocker"
+
+
+def test_no_false_all_clear_when_ontology_did_not_run():
+    from genie_review.capabilities import Capability
+    skipped = Review("s", [], [], [], capabilities=[Capability("Genie One (ontology)", "Skipped", "3 not asked (rapid mode)", 0)])
+    assert status(skipped) == "No issues found in the checks that ran"
+    md = markdown(skipped, LinkContext())
+    assert "Business relationships and definitions were not validated" in md and "rapid mode" in md
+    clean = Review("s", [], [], [], capabilities=[Capability("Genie One (ontology)", "Not needed", "no questions", 0)])
+    assert status(clean) == "No issues found"
+
+
+def test_short_model_titles_become_specific_and_no_generic_validation():
+    f = Finding("ontology.identifier-relationship", "high", "a.sql", 3, "orders", "e", ["ev:genie_one:q"], source="genie")
+    facts = {"ev:genie_one:q": {"status": "answered", "authoritative": True, "intent": "join_relationship"}}
+    normalize([f], facts, Policy())
+    assert f.title == "Join violates a documented relationship: orders"
+    assert f.validation == ""                                     # anchored: no boilerplate
+    g = Finding("deploy.drift", "medium", "j.yml", 1, "t", "e", ["ev:job:1:drift"], params={"job": "etl", "fields": ["tags"]})
+    normalize([g], {"ev:job:1:drift": {}}, Policy())
+    assert g.validation == ""
+
+
+def test_grain_and_filter_rules_need_an_authoritative_definition():
+    for rule in ("correctness.aggregation-grain", "semantic.filter-meaning"):
+        f = Finding(rule, "high", "a.sql", 3, "Order total summed once per line item", "e", ["ev:genie_one:q"], source="genie")
+        normalize([f], {"ev:genie_one:q": {"status": "answered", "authoritative": False}}, Policy())
+        assert f.confidence == "low" and f.category in ("correctness", "semantics")

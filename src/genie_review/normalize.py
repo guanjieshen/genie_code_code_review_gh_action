@@ -25,6 +25,8 @@ RULE_CATEGORY = {
     "contract.write-schema": "contracts",
     "lineage.downstream-break": "lineage",
     "ontology.identifier-relationship": "lineage",
+    "correctness.aggregation-grain": "correctness",
+    "semantic.filter-meaning": "semantics",
     "semantic.metric-definition-drift": "semantics",
     "semantic.non-authoritative-source": "semantics",
     "governance.tagged-data-flow": "governance",
@@ -33,6 +35,9 @@ RULE_CATEGORY = {
 }
 
 # Plain-language consequence for exact checks (Genie supplies its own).
+# Rules whose findings rest on a business definition from Genie One (ontology). They need an authoritative answer.
+ONTOLOGY_RULES = {"ontology.identifier-relationship", "correctness.aggregation-grain", "semantic.filter-meaning"}
+
 RULE_IMPACT = {
     "contract.unknown-object": "The task fails at runtime when it reads the missing object.",
     "contract.column-mismatch": "The query fails at runtime with an unresolved column error.",
@@ -122,7 +127,7 @@ def assess_confidence(f: Finding, facts: dict[str, Any]) -> str:
             return "high"  # types verified; the effect on rows depends on the data
         return "confirmed" if kinds & {"metadata", "deployed_state", "workspace", "column_lineage"} else "high"
     # Genie-derived: confidence depends on what it is anchored to
-    if f.check == "ontology.identifier-relationship":
+    if f.check in ONTOLOGY_RULES:
         # needs an authoritative business definition; an unsourced answer stays a hypothesis
         if "genie_one_authoritative" not in kinds:
             level = "low"
@@ -179,12 +184,22 @@ def finding_id(f: Finding) -> str:
     return "f-" + hashlib.sha1(key.encode()).hexdigest()[:10]
 
 
+def _specific_title(f: Finding) -> None:
+    """Titles must say what is wrong. Very short model titles get the rule's description as a lead-in."""
+    from .checks import CATALOG
+    words = re.sub(r"`[^`]*`", "x", f.title).split()
+    if len(words) < 4 and f.check in CATALOG:
+        f.title = f"{CATALOG[f.check].title}: {f.title}"
+
+
 def _apply_wording(f: Finding, facts: dict[str, Any]) -> None:
     """Exact checks are worded from their params; every actionable finding gets a fix; no repeated impact."""
     if f.source == "deterministic" and f.params:
         w = wording.exact(f.check, f.params)
         if w:
             f.title, f.explanation, f.impact, f.suggestion = w["title"], w["description"], w["impact"], w["recommendation"]
+    if f.source == "genie":
+        _specific_title(f)
     if not f.suggestion:
         f.suggestion = wording.DEFAULT_RECOMMENDATION.get(f.check, "")
     if f.impact and wording.overlaps(f.explanation, f.impact):

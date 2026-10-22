@@ -163,3 +163,22 @@ def test_schema_pages_count_and_incidental_wording_is_not_a_disclaimer():
     assert ontology.assess(text, cites, {}, "customer orders", ["uc:samples.tpch.customer.c_custkey"])[0] is True
     assert ontology.assess("No glossary page covers this; none of these pages apply.", cites, {}, "customer orders",
                            ["uc:samples.tpch.customer.c_custkey"])[0] is False
+
+
+def test_grain_and_filter_questions_are_planned_first(scenario):
+    from genie_review.code_refs import CodeRefs
+    impact, ev = scenario
+    T = "samples.tpch"
+    for t, cols in {"orders": [("o_orderkey", "bigint"), ("o_custkey", "bigint"), ("o_totalprice", "decimal(18,2)")],
+                    "lineitem": [("l_orderkey", "bigint"), ("l_linestatus", "string")]}.items():
+        ev.put(f"ev:uc:{T}.{t}:metadata", {"exists": True, "columns": [{"name": n, "type": ty} for n, ty in cols]})
+    join = [[f"{T}.orders", "o_orderkey"], [f"{T}.lineitem", "l_orderkey"]]
+    refs = CodeRefs(aggregates=[{"table": f"{T}.orders", "column": "o_totalprice", "func": "SUM", "line": 4, "joins": [join]}],
+                    filters=[{"table": f"{T}.lineitem", "column": "l_linestatus", "value": "F", "line": 9, "outputs": ["fulfilled_orders"]}])
+    impact.refs = {"jobs.orders_etl.segment": refs}
+    impact.base_refs = {}
+    qs = ontology.plan(impact, ev.facts)
+    top = {q.intent: q for q in qs if q.priority == 0}
+    assert "aggregation_grain" in top and top["aggregation_grain"].concept == "orders.o_totalprice"
+    assert "filter_semantics" in top and "fulfilled_orders" in top["filter_semantics"].text
+    assert ontology.table_entity("samples.tpch.orders") == "order" and ontology.table_entity("samples.tpch.lineitem") == "lineitem"

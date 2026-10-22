@@ -84,9 +84,17 @@ def severity_counts(groups: list[Group]) -> str:
     return " · ".join(f"{n} {s}" for s in SEVERITIES if (n := sum(g.severity == s for g in groups)))
 
 
+def not_validated(review: Review) -> str:
+    """Why business relationships and definitions were not checked, if they were not."""
+    for c in review.capabilities:
+        if c.name.startswith("Genie One") and c.status in ("Skipped", "Unavailable"):
+            return c.detail
+    return ""
+
+
 def status(review: Review) -> str:
     if not review.groups:
-        partial = review.access_count or any(c.status == "Unavailable" for c in review.capabilities)
+        partial = review.access_count or any(c.status == "Unavailable" for c in review.capabilities) or not_validated(review)
         return "No issues found in the checks that ran" if partial else "No issues found"
     top = min((g.merge_impact for g in review.groups), key=["blocker", "action_required", "review_recommended", "informational"].index)
     return STATUS[top]
@@ -132,6 +140,15 @@ def evidence_block(g: Group, facts: dict[str, Any]) -> str:
     if objs:
         rows.append(f"- Objects: {', '.join(f'`{o}`' for o in objs)}")
     ev = sorted({e for m in g.findings for e in m.evidence})
+    for e in ev:
+        g1 = facts.get(e) if e.startswith("ev:genie_one:") else None
+        if g1:
+            pages = sorted({c.get("label") or "page" for c in g1.get("citations", []) if c.get("kind") == "uc_page" and c.get("relevant") == "yes"})
+            objs = sorted({c["ref"].split(".")[-1] for c in g1.get("citations", []) if c.get("kind") == "uc_object"})
+            src = "; ".join(x for x in [f"Pages: {', '.join(pages)}" if pages else "", f"tables: {', '.join(objs)}" if objs else "",
+                                        f"{len(g1.get('queries') or [])} query result(s)" if g1.get("queries") else ""] if x)
+            rows.append(f"- Genie One ({'authoritative' if g1.get('authoritative') else 'unsourced'}): {g1.get('concept')}"
+                        + (f" — {src}" if src else ""))
     rows.append("- Evidence: " + ", ".join(f"`{e[:120]}`" for e in ev))
     rows.append(f"- Finding ids: {', '.join(f'`{m.id}`' for m in g.findings)}")
     rows += ["", "</details>"]
@@ -157,6 +174,10 @@ def markdown(review: Review, ctx: LinkContext, max_summary_lines: int = 5) -> st
         if checks != len(groups):
             line += f" ({checks} supporting checks)"
         out.append(line)
+    gap = not_validated(review)
+    if gap:
+        out += ["", f"> ℹ️ **Business relationships and definitions were not validated** ({gap}). "
+                    "Run with `analysis-depth: detailed` to check joins, grain, and codes against the ontology."]
     if review.access_count:
         out += ["", f"> ⚠️ **Partial review.** The reviewer could not read {_plural(review.access_count, 'object or source')}, "
                     "so some checks were limited. See **Analysis coverage** for the grants to add."]

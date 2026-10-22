@@ -54,7 +54,7 @@ class Settings:
     # ---- analysis depth and ontology
     depth: str = "rapid"             # rapid | detailed
     ontology: bool = True            # plan ontology questions (asked only in detailed mode)
-    ontology_budget: int = 4         # Genie One questions per PR in detailed mode
+    ontology_budget: int = 6         # Genie One questions per PR in detailed mode
     # ---- merge-impact policy
     block_severities: list[str] = field(default_factory=lambda: ["critical"])
     block_min_confidence: str = "confirmed"
@@ -126,7 +126,7 @@ def load(inputs: dict[str, Any]) -> Settings:
         fail_on_error=str(pick("fail_on_error", default="false")).lower() == "true",
         depth=str(pick("depth", "analysis_depth", default="rapid")),
         ontology=_bool(pick("ontology_enabled", "ontology.enabled", default=True)),
-        ontology_budget=int(pick("ontology_budget", "ontology.max_questions", default=4)),
+        ontology_budget=int(pick("ontology_budget", "ontology.max_questions", default=6)),
         max_findings=int(pick("max_findings", "limits.max_findings", default=15)),
         min_confidence=float(pick("min_confidence", "limits.min_confidence", default=0.6)),
         instructions="\n\n".join(instructions),
