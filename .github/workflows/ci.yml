@@ -15,7 +15,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v10.2.0
       - name: Check lockfile
-        run: uv lock --check
+        run: |
+          if grep -Eo 'https://[a-z0-9.-]+' uv.lock | sort -u | grep -vE '^https://(pypi\.org|files\.pythonhosted\.org)$'; then
+            echo "::error::uv.lock references a non-public package index. Regenerate it against pypi.org."
+            exit 1
+          fi
+          uv lock --check
       - name: Unit tests
         run: uv run --frozen pytest -q
 
