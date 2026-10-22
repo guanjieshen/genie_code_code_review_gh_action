@@ -1,6 +1,6 @@
 # Security model
 
-Genie Data Review passes untrusted pull request content to an AI agent. The design assumes the agent can be misled, and limits what that could cause.
+Lakehouse Review passes untrusted pull request content to an AI agent. The design assumes the agent can be misled, and limits what that could cause.
 
 ### Controls
 

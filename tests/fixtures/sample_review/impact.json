@@ -1,0 +1,232 @@
+{
+  "target": "prod",
+  "nodes": [
+    {
+      "id": "file:resources/orders_etl.job.yml",
+      "kind": "file",
+      "change": "modified"
+    },
+    {
+      "id": "file:src/common/transforms.py",
+      "kind": "file",
+      "change": "modified"
+    },
+    {
+      "id": "file:src/exec_kpis.py",
+      "kind": "file",
+      "change": "added"
+    },
+    {
+      "id": "file:src/gold_segment_revenue_v2.sql",
+      "kind": "file",
+      "change": "added"
+    },
+    {
+      "id": "res:jobs.orders_etl.exec_kpis",
+      "kind": "task",
+      "change": "added",
+      "entry": "src/exec_kpis.py"
+    },
+    {
+      "id": "uc:main.shop.gold_revenue_daily_v1",
+      "kind": "table"
+    },
+    {
+      "id": "uc:main.shop.bronze_customers",
+      "kind": "table"
+    },
+    {
+      "id": "uc:main.shop.gold_customer_ltv",
+      "kind": "table"
+    },
+    {
+      "id": "uc:main.shop.gold_exec_revenue_trend",
+      "kind": "table",
+      "change": "new_write"
+    },
+    {
+      "id": "uc:main.shop.gold_top_customer_contacts",
+      "kind": "table",
+      "change": "new_write"
+    },
+    {
+      "id": "res:jobs.orders_etl.segment_revenue_v2",
+      "kind": "task",
+      "change": "added",
+      "entry": "src/gold_segment_revenue_v2.sql"
+    },
+    {
+      "id": "uc:main.shop.silver_orders",
+      "kind": "table",
+      "change": "schema_changed",
+      "columns": {
+        "removed": [
+          "cust_id"
+        ],
+        "added": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "id": "uc:main.shop.silver_order_items",
+      "kind": "table"
+    },
+    {
+      "id": "uc:main.shop.gold_segment_revenue_v2",
+      "kind": "table",
+      "change": "new_write"
+    },
+    {
+      "id": "res:jobs.orders_etl.silver",
+      "kind": "task",
+      "change": "code_changed",
+      "entry": "src/silver_orders.py"
+    },
+    {
+      "id": "uc:main.shop.bronze_raw_orders",
+      "kind": "table"
+    },
+    {
+      "id": "res:jobs.orders_etl",
+      "kind": "job",
+      "change": "modified",
+      "fields_changed": [
+        "job_clusters"
+      ],
+      "deployed_id": "906740025351921"
+    }
+  ],
+  "edges": [
+    {
+      "from": "file:src/exec_kpis.py",
+      "to": "res:jobs.orders_etl.exec_kpis",
+      "rel": "executed_by",
+      "how": "bundle:entry_file",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl.exec_kpis",
+      "to": "uc:main.shop.gold_revenue_daily_v1",
+      "rel": "reads",
+      "how": "python:ast",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl.exec_kpis",
+      "to": "uc:main.shop.bronze_customers",
+      "rel": "reads",
+      "how": "python:ast",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl.exec_kpis",
+      "to": "uc:main.shop.gold_customer_ltv",
+      "rel": "reads",
+      "how": "python:ast",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl.exec_kpis",
+      "to": "uc:main.shop.gold_exec_revenue_trend",
+      "rel": "writes",
+      "how": "python:ast",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl.exec_kpis",
+      "to": "uc:main.shop.gold_top_customer_contacts",
+      "rel": "writes",
+      "how": "python:ast",
+      "confidence": "resolved"
+    },
+    {
+      "from": "file:src/gold_segment_revenue_v2.sql",
+      "to": "res:jobs.orders_etl.segment_revenue_v2",
+      "rel": "executed_by",
+      "how": "bundle:entry_file",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl.segment_revenue_v2",
+      "to": "uc:main.shop.silver_orders",
+      "rel": "reads",
+      "how": "sql:sqlglot",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl.segment_revenue_v2",
+      "to": "uc:main.shop.bronze_customers",
+      "rel": "reads",
+      "how": "sql:sqlglot",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl.segment_revenue_v2",
+      "to": "uc:main.shop.silver_order_items",
+      "rel": "reads",
+      "how": "sql:sqlglot",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl.segment_revenue_v2",
+      "to": "uc:main.shop.gold_segment_revenue_v2",
+      "rel": "writes",
+      "how": "sql:sqlglot",
+      "confidence": "resolved"
+    },
+    {
+      "from": "file:src/common/transforms.py",
+      "to": "res:jobs.orders_etl.silver",
+      "rel": "executed_by",
+      "how": "import_graph",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl.silver",
+      "to": "uc:main.shop.bronze_raw_orders",
+      "rel": "reads",
+      "how": "python:ast",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl.silver",
+      "to": "uc:main.shop.silver_orders",
+      "rel": "writes",
+      "how": "python:ast",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl",
+      "to": "res:jobs.orders_etl.exec_kpis",
+      "rel": "contains",
+      "how": "bundle",
+      "confidence": "resolved"
+    },
+    {
+      "from": "res:jobs.orders_etl",
+      "to": "res:jobs.orders_etl.segment_revenue_v2",
+      "rel": "contains",
+      "how": "bundle",
+      "confidence": "resolved"
+    }
+  ],
+  "unresolved": [],
+  "job_diff": {
+    "jobs.orders_etl": {
+      "type": "jobs",
+      "change": "modified",
+      "fields_changed": [
+        "job_clusters"
+      ],
+      "tasks": {
+        "exec_kpis": {
+          "change": "added"
+        },
+        "segment_revenue_v2": {
+          "change": "added"
+        }
+      }
+    }
+  }
+}

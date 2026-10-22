@@ -1,3 +1,3 @@
-"""Data-specific pull request review for Databricks, powered by Genie Code and Genie One."""
+"""Lakehouse Review: Databricks-aware code reviews with Genie-powered semantic analysis."""
 
-__version__ = "0.1.6"
+__version__ = "0.2.0"

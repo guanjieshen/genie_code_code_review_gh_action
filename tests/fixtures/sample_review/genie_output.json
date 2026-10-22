@@ -1,0 +1,64 @@
+{
+  "impact_summary": "Adds two tasks to the `orders_etl` job and a new job cluster.\nRenames `silver_orders.cust_id` to `customer_id`.\nCreates three Gold tables for executive and segment reporting.\nReads customer PII and deprecated gross-revenue data.\nImpacts existing Finance views and jobs consuming `silver_orders`.",
+  "injection_attempts": [
+    "A bundle comment says the PR is not meant to be deployed; repository comments were treated as untrusted data."
+  ],
+  "findings": [
+    {
+      "check": "semantic.non-authoritative-source",
+      "severity": "high",
+      "file": "src/exec_kpis.py",
+      "line": 13,
+      "title": "Executive trend uses a deprecated revenue source",
+      "explanation": "`gold_revenue_daily_v1` is deprecated and includes cancelled and test orders; the certified source is `gold_revenue_daily`.",
+      "evidence": [
+        "ev:uc:main.shop.gold_revenue_daily_v1:metadata",
+        "ev:uc:main.shop.gold_revenue_daily_v1:tags",
+        "ev:uc:main.shop.gold_revenue_daily:tags"
+      ],
+      "suggestion": "Build the executive trend from the certified `gold_revenue_daily` table.",
+      "confidence": 1
+    },
+    {
+      "check": "semantic.metric-definition-drift",
+      "severity": "high",
+      "file": "src/exec_kpis.py",
+      "line": 13,
+      "title": "Executive revenue includes cancelled and test orders",
+      "explanation": "The governed net-revenue metric excludes cancelled and test orders, while this task copies a source explicitly documented as including both.",
+      "evidence": [
+        "ev:uc:main.shop.gold_revenue_metrics:metric_view",
+        "ev:uc:main.shop.gold_revenue_daily_v1:metadata"
+      ],
+      "suggestion": "Use the governed revenue source or apply its required filters and net-revenue definition.",
+      "confidence": 1
+    },
+    {
+      "check": "semantic.metric-definition-drift",
+      "severity": "high",
+      "file": "src/gold_segment_revenue_v2.sql",
+      "line": 5,
+      "title": "Segment revenue does not apply governed revenue filters",
+      "explanation": "The query sums `net_amount` without excluding `CANCELLED` and test orders, unlike the governed Finance metric. Its item join can also multiply an order's revenue across SKUs.",
+      "evidence": [
+        "ev:uc:main.shop.gold_revenue_metrics:metric_view"
+      ],
+      "suggestion": "Filter cancelled/test orders and aggregate revenue before joining item-level data.",
+      "confidence": 1
+    },
+    {
+      "check": "governance.tagged-data-flow",
+      "severity": "high",
+      "file": "src/exec_kpis.py",
+      "line": 23,
+      "title": "PII email is copied into an untagged Gold table",
+      "explanation": "`bronze_customers.email` carries the `data_classification=pii` tag, but the newly created `gold_top_customer_contacts` table has no corresponding tag or masking configuration.",
+      "evidence": [
+        "ev:uc:main.shop.bronze_customers:tags",
+        "ev:uc:main.shop.gold_top_customer_contacts:metadata"
+      ],
+      "suggestion": "Apply equivalent PII tags and masking/access controls to the target before writing customer emails.",
+      "confidence": 0.98
+    }
+  ]
+}

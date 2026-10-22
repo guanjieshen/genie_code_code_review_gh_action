@@ -1,0 +1,177 @@
+[
+  {
+    "check": "lineage.downstream-break",
+    "severity": "critical",
+    "file": "src/common/transforms.py",
+    "line": 8,
+    "title": "Removing `cust_id` breaks 1 downstream column(s)",
+    "explanation": "Column lineage shows these consumers of `main.shop.silver_orders.cust_id`: main.shop.gold_customer_ltv.cust_id.",
+    "evidence": [
+      "ev:lineage:main.shop.silver_orders.cust_id:downstream",
+      "ev:lineage:main.shop.silver_orders:downstream"
+    ],
+    "suggestion": "Update or migrate the downstream objects before (or with) this change.",
+    "confidence": 1.0,
+    "source": "deterministic"
+  },
+  {
+    "check": "contract.unknown-object",
+    "severity": "critical",
+    "file": "src/gold_segment_revenue_v2.sql",
+    "line": 10,
+    "title": "`main.shop.silver_order_items` does not exist",
+    "explanation": "The code reads `main.shop.silver_order_items`, which does not exist in the target workspace and is not created by this PR.",
+    "evidence": [
+      "ev:uc:main.shop.silver_order_items:metadata"
+    ],
+    "suggestion": "Create the table first, fix the name, or add the task that produces it.",
+    "confidence": 1.0,
+    "source": "deterministic"
+  },
+  {
+    "check": "deploy.runtime-support",
+    "severity": "high",
+    "file": "resources/orders_etl.job.yml",
+    "line": 41,
+    "title": "Runtime `11.3.x-scala2.12` is not offered by this workspace",
+    "explanation": "The workspace does not offer `11.3.x-scala2.12`. Examples it offers: 15.4.x-scala2.12, 16.4.x-scala2.13, 16.4.x-scala2.12, 17.3.x-scala2.13, 18.2.x-scala2.13.",
+    "evidence": [
+      "ev:workspace:spark_version:11.3.x-scala2.12"
+    ],
+    "suggestion": "Use a supported LTS runtime.",
+    "confidence": 1.0,
+    "source": "deterministic"
+  },
+  {
+    "check": "contract.write-schema",
+    "severity": "high",
+    "file": "src/common/transforms.py",
+    "line": 8,
+    "title": "Write changes the schema of existing table `silver_orders`",
+    "explanation": "`main.shop.silver_orders` currently has cust_id; this PR stops writing cust_id and adds customer_id.",
+    "evidence": [
+      "ev:uc:main.shop.silver_orders:metadata"
+    ],
+    "suggestion": "Plan the migration: keep the old column during a transition, or update consumers in the same change.",
+    "confidence": 1.0,
+    "source": "deterministic"
+  },
+  {
+    "check": "semantic.non-authoritative-source",
+    "severity": "high",
+    "file": "src/exec_kpis.py",
+    "line": 13,
+    "title": "Executive trend uses a deprecated revenue source",
+    "explanation": "`gold_revenue_daily_v1` is deprecated and includes cancelled and test orders; the certified source is `gold_revenue_daily`.",
+    "evidence": [
+      "ev:uc:main.shop.gold_revenue_daily_v1:metadata",
+      "ev:uc:main.shop.gold_revenue_daily_v1:tags",
+      "ev:uc:main.shop.gold_revenue_daily:tags"
+    ],
+    "suggestion": "Build the executive trend from the certified `gold_revenue_daily` table.",
+    "confidence": 1,
+    "source": "genie"
+  },
+  {
+    "check": "semantic.metric-definition-drift",
+    "severity": "high",
+    "file": "src/exec_kpis.py",
+    "line": 13,
+    "title": "Executive revenue includes cancelled and test orders",
+    "explanation": "The governed net-revenue metric excludes cancelled and test orders, while this task copies a source explicitly documented as including both.",
+    "evidence": [
+      "ev:uc:main.shop.gold_revenue_metrics:metric_view",
+      "ev:uc:main.shop.gold_revenue_daily_v1:metadata"
+    ],
+    "suggestion": "Use the governed revenue source or apply its required filters and net-revenue definition.",
+    "confidence": 1,
+    "source": "genie"
+  },
+  {
+    "check": "governance.tagged-data-flow",
+    "severity": "high",
+    "file": "src/exec_kpis.py",
+    "line": 23,
+    "title": "PII email is copied into an untagged Gold table",
+    "explanation": "`bronze_customers.email` carries the `data_classification=pii` tag, but the newly created `gold_top_customer_contacts` table has no corresponding tag or masking configuration.",
+    "evidence": [
+      "ev:uc:main.shop.bronze_customers:tags",
+      "ev:uc:main.shop.gold_top_customer_contacts:metadata"
+    ],
+    "suggestion": "Apply equivalent PII tags and masking/access controls to the target before writing customer emails.",
+    "confidence": 0.98,
+    "source": "genie"
+  },
+  {
+    "check": "contract.column-mismatch",
+    "severity": "high",
+    "file": "src/gold_segment_revenue_v2.sql",
+    "line": 4,
+    "title": "`bronze_customers.customer_segment` does not exist",
+    "explanation": "`main.shop.bronze_customers` has no column `customer_segment`. Live columns: cust_id, email, full_name, is_free_trial, segment.",
+    "evidence": [
+      "ev:uc:main.shop.bronze_customers:metadata"
+    ],
+    "suggestion": "",
+    "confidence": 1.0,
+    "source": "deterministic"
+  },
+  {
+    "check": "semantic.metric-definition-drift",
+    "severity": "high",
+    "file": "src/gold_segment_revenue_v2.sql",
+    "line": 5,
+    "title": "Segment revenue does not apply governed revenue filters",
+    "explanation": "The query sums `net_amount` without excluding `CANCELLED` and test orders, unlike the governed Finance metric. Its item join can also multiply an order's revenue across SKUs.",
+    "evidence": [
+      "ev:uc:main.shop.gold_revenue_metrics:metric_view"
+    ],
+    "suggestion": "Filter cancelled/test orders and aggregate revenue before joining item-level data.",
+    "confidence": 1,
+    "source": "genie"
+  },
+  {
+    "check": "deploy.drift",
+    "severity": "medium",
+    "file": "resources/orders_etl.job.yml",
+    "line": 3,
+    "title": "Deploy will overwrite UI changes on job `orders_etl`",
+    "explanation": "The deployed job differs from the bundle on the base branch in: timeout_seconds, tags. Deploying this PR replaces those settings.",
+    "evidence": [
+      "ev:job:906740025351921:drift"
+    ],
+    "suggestion": "Bring the out-of-band changes into the bundle, or confirm they should be reverted.",
+    "confidence": 1.0,
+    "source": "deterministic"
+  },
+  {
+    "check": "contract.type-mismatch",
+    "severity": "medium",
+    "file": "src/exec_kpis.py",
+    "line": 20,
+    "title": "Join compares bigint `cust_id` with string `cust_id`",
+    "explanation": "`main.shop.gold_customer_ltv.cust_id` is bigint and `main.shop.bronze_customers.cust_id` is string. The join relies on an implicit cast, which is slow and can silently drop or mismatch rows.",
+    "evidence": [
+      "ev:uc:main.shop.gold_customer_ltv:metadata",
+      "ev:uc:main.shop.bronze_customers:metadata"
+    ],
+    "suggestion": "Cast explicitly to a common type, or align the column types at the source.",
+    "confidence": 1.0,
+    "source": "deterministic"
+  },
+  {
+    "check": "contract.type-mismatch",
+    "severity": "medium",
+    "file": "src/gold_segment_revenue_v2.sql",
+    "line": 9,
+    "title": "Join compares bigint `customer_id` with string `cust_id`",
+    "explanation": "`main.shop.silver_orders.customer_id` is bigint and `main.shop.bronze_customers.cust_id` is string. The join relies on an implicit cast, which is slow and can silently drop or mismatch rows.",
+    "evidence": [
+      "ev:uc:main.shop.silver_orders:metadata",
+      "ev:uc:main.shop.bronze_customers:metadata"
+    ],
+    "suggestion": "Cast explicitly to a common type, or align the column types at the source.",
+    "confidence": 1.0,
+    "source": "deterministic"
+  }
+]

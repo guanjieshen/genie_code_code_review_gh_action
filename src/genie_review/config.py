@@ -16,7 +16,7 @@ import yaml
 from .util import CommandError, log, sh
 
 DEFAULT_CONFIG_PATH = ".genie-review/config.yml"
-FAIL_ON = ["none", "critical", "high", "medium"]
+FAIL_ON = ["none", "blocker", "critical", "high", "medium"]
 ON_MODEL_UNAVAILABLE = ["deterministic", "skip", "fail"]
 
 
@@ -43,6 +43,18 @@ class Settings:
     disable: list[str] = field(default_factory=list)
     severity: dict[str, str] = field(default_factory=dict)
     config_source: str = "defaults"
+    # ---- report (what the PR comment shows; the JSON keeps everything)
+    categories: list[str] = field(default_factory=lambda: ["contracts", "correctness", "semantics", "lineage", "governance", "deployment"])
+    min_severity: str = "low"
+    prominent_min_confidence: str = "high"   # Needs attention requires at least this confidence
+    show_low_confidence: bool = False
+    include_info: bool = False
+    group_related: bool = True
+    max_priority: int = 3
+    # ---- merge-impact policy
+    block_severities: list[str] = field(default_factory=lambda: ["critical"])
+    block_min_confidence: str = "confirmed"
+    block_categories: list[str] = field(default_factory=lambda: ["contracts", "lineage", "deployment"])
     bundle_dir: str = "."
 
     @property
@@ -115,6 +127,7 @@ def load(inputs: dict[str, Any]) -> Settings:
         disable=list(checks.get("disable") or []),
         severity=dict(checks.get("severity") or {}),
         config_source=config_path if raw else "defaults",
+        **_report_settings(file_cfg),
         bundle_dir=bundle_dir,
     )
     if s.fail_on not in FAIL_ON:
@@ -122,3 +135,30 @@ def load(inputs: dict[str, Any]) -> Settings:
     if s.on_model_unavailable not in ON_MODEL_UNAVAILABLE:
         raise ValueError(f"on-model-unavailable must be one of {ON_MODEL_UNAVAILABLE}")
     return s
+
+
+def _bool(v: Any) -> bool:
+    return str(v).lower() in ("1", "true", "yes", "on")
+
+
+def _report_settings(cfg: dict[str, Any]) -> dict[str, Any]:
+    """`report:` and `merge_policy:` blocks of the config file. Unset keys keep their defaults."""
+    r, m, out = cfg.get("report") or {}, cfg.get("merge_policy") or {}, {}
+    for key in ("categories",):
+        if r.get(key):
+            out[key] = list(r[key])
+    for key in ("min_severity", "prominent_min_confidence"):
+        if r.get(key):
+            out[key] = str(r[key])
+    for key in ("show_low_confidence", "include_info", "group_related"):
+        if key in r:
+            out[key] = _bool(r[key])
+    if r.get("max_priority") is not None:
+        out["max_priority"] = int(r["max_priority"])
+    if m.get("block_severities"):
+        out["block_severities"] = list(m["block_severities"])
+    if m.get("block_min_confidence"):
+        out["block_min_confidence"] = str(m["block_min_confidence"])
+    if m.get("block_categories"):
+        out["block_categories"] = list(m["block_categories"])
+    return out

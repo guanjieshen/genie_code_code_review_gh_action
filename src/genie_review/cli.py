@@ -29,7 +29,7 @@ def _common(p: argparse.ArgumentParser) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="genie-review", description="Data-specific PR review for Databricks.")
+    ap = argparse.ArgumentParser(prog="genie-review", description="Lakehouse Review: Databricks-aware code reviews with Genie-powered semantic analysis.")
     ap.add_argument("--version", action="version", version=__version__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     run_p = sub.add_parser("run", help="Review the current branch against its base")

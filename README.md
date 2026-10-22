@@ -1,4 +1,4 @@
-# Genie Data Review
+# Lakehouse Review
 
 ![Status](https://img.shields.io/badge/status-preview-orange)
 ![Genie Code CLI](https://img.shields.io/badge/Genie%20Code%20CLI-v0.2.0-blue)
@@ -6,33 +6,37 @@
 
 ## Overview
 
-This repository provides a GitHub Action that reviews pull requests to Databricks code **against the live workspace the code deploys to**. It is a data-specific review layer that runs alongside your existing code reviewer (for example GitHub Copilot), not a replacement for it.
+**Lakehouse Review** brings Databricks-aware code reviews with Genie-powered semantic analysis to GitHub pull requests. It reviews changes to Databricks code **against the live workspace the code deploys to**. It is a data-specific review layer that runs alongside your existing code reviewer (for example GitHub Copilot), not a replacement for it.
 
-A general code reviewer reads the diff. It cannot know that `orders.cust_id` is a `BIGINT` in production, that a view and two dashboards read the column you are renaming, or that the table you are reading was deprecated last quarter. Genie Data Review works out what the pull request touches in Databricks, reads those facts with a read-only identity, and asks **Genie Code** (with **Genie One** for business definitions) to review the change against them. Every finding cites the Databricks fact it is based on.
+A general code reviewer reads the diff. It cannot know that `orders.cust_id` is a `BIGINT` in production, that a view and two dashboards read the column you are renaming, or that the table you are reading was deprecated last quarter. Lakehouse Review works out what the pull request touches in Databricks, reads those facts with a read-only identity, and asks **Genie Code** (with **Genie One** for business definitions) to review the change against them. Every finding cites the Databricks fact it is based on.
 
 ```
 Pull request ──► Copilot (or any reviewer)  → code quality, logic, style
-             └─► Genie Data Review          → schemas, lineage, deployed state, governance, metric definitions
+             └─► Lakehouse Review           → schemas, lineage, deployed state, governance, metric definitions
 ```
 
 ## What it checks
 
-The action only reports problems that need a fact from the workspace. It stays silent on style and generic code issues.
+The action only reports problems that need a fact from the workspace. It stays silent on style and generic code issues. Every finding belongs to one review area:
 
-| Check | Finds | Needs Genie |
+| Review area | Example findings | Checks |
 |---|---|---|
-| `contract.unknown-object` | Code reads a table or view that does not exist in the target workspace | No |
-| `contract.column-mismatch` | Code references a column the live table does not have | No |
-| `contract.type-mismatch` | Joins across incompatible types, for example `BIGINT` = `STRING` | No |
-| `contract.write-schema` | A write removes, renames, or retypes columns of an existing table | No |
-| `lineage.downstream-break` | A removed or renamed column breaks downstream tables, views, jobs, or dashboards | No |
-| `deploy.drift` | The deployed job was edited outside the bundle, and this deploy will overwrite it | No |
-| `deploy.runtime-support` | A cluster uses a Databricks Runtime the workspace does not offer | No |
-| `governance.tagged-data-flow` | Governance-tagged columns (for example PII) are copied into an untagged target | Yes |
-| `semantic.metric-definition-drift` | A metric is computed differently from its governed definition (metric view, certified table) | Yes (Genie One) |
-| `semantic.non-authoritative-source` | Code reads a deprecated or non-authoritative table | Yes (Genie One) |
+| Data contracts & compatibility | Missing table or column, type mismatch in a join, write changes an existing table's schema | `contract.unknown-object`, `contract.column-mismatch`, `contract.type-mismatch`, `contract.write-schema` |
+| Lineage, relationships & ontology | A removed column breaks downstream tables, views, jobs, or dashboards | `lineage.downstream-break` |
+| Business semantics & metrics | A metric differs from its governed definition; code reads a deprecated dataset | `semantic.metric-definition-drift`, `semantic.non-authoritative-source` (Genie) |
+| Security & governance | Classified (for example PII) columns copied into an unclassified table | `governance.tagged-data-flow` (Genie) |
+| Deployment & operations | Unsupported Databricks Runtime; deploy overwrites changes made outside the bundle | `deploy.runtime-support`, `deploy.drift` |
+| Data correctness & quality | Reserved for correctness checks | |
 
-Every pull request also gets an **impact summary** (which jobs, tables, and downstream consumers it touches) and a coverage table showing which checks ran.
+Each finding has three separate ratings:
+
+| Rating | Values | How it is set |
+|---|---|---|
+| **Severity** | critical, high, medium, low, info | How bad the issue would be |
+| **Confidence** | confirmed, high, medium, low | From the evidence, not from the model: verified metadata or lineage is *confirmed*; a semantic finding anchored to a metric view or a certified or deprecated dataset is *high*; Genie interpretation alone, or a classification gap without permission evidence, is *medium* |
+| **Merge impact** | blocker, action required, review recommended, informational | A configurable policy. By default only *critical*, *confirmed* contract, lineage, and deployment issues are blockers |
+
+Related checks of the same root cause (for example a schema change and the downstream break it causes) are shown as one issue; the JSON output keeps every finding. See [a sample review](docs/sample-review.md).
 
 ## How it works
 
@@ -40,7 +44,7 @@ Every pull request also gets an **impact summary** (which jobs, tables, and down
 2. **Evidence.** It reads only what is needed from the workspace: table metadata, governance tags, metric views, downstream lineage, deployed job settings, and offered runtimes.
 3. **Exact checks.** Checks that need no model run first.
 4. **Genie review.** Genie Code reviews the pull request in a read-only sandbox with the plan and evidence. For semantic checks it asks Genie One. Findings that do not cite real evidence are dropped.
-5. **Publish.** One review comment on the pull request, updated on every push.
+5. **Process and publish.** Findings get a review area, severity, confidence, and merge impact; related findings are grouped and ranked; the top issues are shown first. One comment on the pull request is updated on every push, and `review.json` holds the full structured result.
 
 See [docs/architecture.md](docs/architecture.md) for details.
 
@@ -67,7 +71,7 @@ In your repository settings, add:
 Create `.github/workflows/genie-data-review.yml`:
 
 ```yaml
-name: Genie data review
+name: Lakehouse Review
 
 on:
   pull_request:
@@ -93,7 +97,7 @@ jobs:
 ```
 
 > 💡 **Tip**
-> If your organization requires actions pinned to a commit SHA, use `guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.1.6`. All actions used inside this action are pinned by SHA.
+> If your organization requires actions pinned to a commit SHA, use `guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.2.0`. All actions used inside this action are pinned by SHA.
 
 ### 4. Open a pull request
 
@@ -113,7 +117,7 @@ The review appears as a comment on the pull request. Start in advisory mode (the
 | `bundle-dir` | `.` | Folder containing `databricks.yml`, for monorepos. Config paths are relative to it |
 | `warehouse-id` | auto | SQL warehouse for metadata queries |
 | `semantic` | `genie-one` | `genie-one` or `off` |
-| `fail-on` | `none` | Fail the check at `critical`, `high`, or `medium` |
+| `fail-on` | `none` | Fail the check on any `blocker` (merge-impact policy), or at a severity: `critical`, `high`, `medium` |
 | `fail-on-error` | `false` | Fail the check when the review cannot run (sign-in or bundle errors). By default it explains the problem and passes |
 | `genie-model` | Genie default | Override the Genie Code model |
 | `genie-host` | empty | Separate workspace that serves the Genie Code model (see below) |

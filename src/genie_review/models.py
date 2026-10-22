@@ -51,22 +51,51 @@ class PlanItem:
     why: str
 
 
+CONFIDENCE = ["confirmed", "high", "medium", "low"]
+MERGE_IMPACT = ["blocker", "action_required", "review_recommended", "informational"]
+CATEGORIES = {  # stable id -> display name, in default display order
+    "contracts": "Data contracts & compatibility",
+    "correctness": "Data correctness & quality",
+    "semantics": "Business semantics & metrics",
+    "lineage": "Lineage, relationships & ontology",
+    "governance": "Security & governance",
+    "deployment": "Deployment & operations",
+    "other": "Other",
+}
+
+
 @dataclass
 class Finding:
-    check: str
-    severity: str
+    """One check result. Legacy fields (check, file, line, explanation, suggestion, source) are kept for
+    backward compatibility; normalized fields are filled in by normalize.py."""
+
+    check: str                      # rule id, e.g. contract.unknown-object
+    severity: str                   # critical | high | medium | low | info
     file: str
     line: int
     title: str
-    explanation: str
-    evidence: list[str]
-    suggestion: str = ""
-    confidence: float = 1.0
-    source: str = "deterministic"  # deterministic | genie
+    explanation: str                # description: what is wrong
+    evidence: list[str]             # evidence ids (ev:...) or genie_one:<question>
+    suggestion: str = ""            # recommendation
+    model_confidence: float = 1.0   # Genie's self-reported score; only used to downgrade
+    source: str = "deterministic"   # deterministic | genie
+    impact: str = ""                # consequence, in business terms where possible
+    affected_objects: list[str] = field(default_factory=list)
+    # ---- normalized (normalize.py / correlate.py)
+    id: str = ""
+    category: str = "other"
+    confidence: str = "medium"      # confirmed | high | medium | low
+    merge_impact: str = "review_recommended"
+    detected_by: list[str] = field(default_factory=list)
+    group_id: str = ""
+    related_findings: list[str] = field(default_factory=list)
 
     @property
-    def key(self) -> tuple[str, str, str]:
-        return (self.check, self.file, self.title.lower()[:60])
+    def rule_id(self) -> str:
+        return self.check
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        d.update(rule_id=self.check, description=self.explanation, recommendation=self.suggestion,
+                 location={"file": self.file, "line": self.line})
+        return d
