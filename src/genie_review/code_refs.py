@@ -295,10 +295,10 @@ def _imports(path: Path, roots: list[Path]) -> list[Path]:
     return found
 
 
-def executed_files(repo: Path, entry: str) -> set[str]:
+def executed_files(repo: Path, entry: str, extra_roots: list[Path] | None = None) -> set[str]:
     """Repo-relative files an entry point executes: itself plus transitive local imports."""
     entry_path = repo / entry
-    roots = [entry_path.parent, repo / "src", repo]
+    roots = [entry_path.parent, *(extra_roots or []), repo / "src", repo]
     seen: set[Path] = set()
     stack = [entry_path]
     while stack:

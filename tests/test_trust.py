@@ -36,3 +36,15 @@ def test_write_home_allowlists_genie_one_tools(tmp_path):
     assert 'enabled_tools = ["genie_ask", "genie_poll_response", "genie_get_query_result"]' in cfg
     assert "genie_cancel_response" not in cfg
     assert 'default_tools_approval_mode = "approve"' in cfg
+
+
+def test_monorepo_config_is_read_from_bundle_dir(tmp_path):
+    r = tmp_path / "mono"
+    (r / "team/app/.genie-review").mkdir(parents=True)
+    (r / "team/app/.genie-review/config.yml").write_text("fail_on: high\ninstructions_file: .genie-review/notes.md\n")
+    (r / "team/app/.genie-review/notes.md").write_text("Prod is main.\n")
+    git(r, "init", "-q", "-b", "main")
+    git(r, "add", "-A")
+    git(r, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "base")
+    s = config.load({"repo": str(r), "base_ref": "main", "profile": "p", "bundle_dir": "team/app"})
+    assert s.fail_on == "high" and s.instructions == "Prod is main." and s.bundle_dir == "team/app"

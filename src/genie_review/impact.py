@@ -6,6 +6,7 @@ That is how removals, renames, and type changes are found, not just "line 42 cha
 
 from __future__ import annotations
 
+import os
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,10 +39,13 @@ class ImpactResult:
     repo: Path
 
 
-def _model(tree: Path, bundle: dict[str, Any]) -> tuple[TreeModel, dict[str, CodeRefs]]:
+def _model(tree: Path, bundle: dict[str, Any], bundle_dir: str) -> tuple[TreeModel, dict[str, CodeRefs]]:
+    """Paths in the model are repo-relative, even when the bundle lives in a subfolder."""
     model, all_refs = TreeModel(), {}
-    for e in bdl.entries(bundle, tree):
-        executes = executed_files(tree, e.file)
+    broot = tree / bundle_dir
+    for e in bdl.entries(bundle, broot):
+        e.file = os.path.normpath(os.path.join(bundle_dir, e.file))
+        executes = executed_files(tree, e.file, [broot, broot / "src"])
         refs = file_refs(tree / e.file, e.params)
         helper_outputs: list[str] = []
         # Output columns come from shared helpers, or from the entry file itself when it writes one table
@@ -67,19 +71,22 @@ def changed_files(repo: Path, base_ref: str) -> dict[str, str]:
     return out
 
 
-def analyze(repo: Path, base_ref: str, profile: str, target: str | None) -> ImpactResult:
+def analyze(repo: Path, base_ref: str, profile: str, target: str | None, bundle_dir: str = ".") -> ImpactResult:
     files = changed_files(repo, base_ref)
     log(f"{len(files)} changed files")
     with tempfile.TemporaryDirectory() as tmp:
         base_tree = Path(tmp) / "base"
         sh(["git", "worktree", "add", "--detach", str(base_tree), base_ref], cwd=repo)
         try:
-            base_bundle = bdl.resolve(base_tree, profile, target)
-            base_model, _ = _model(base_tree, base_bundle)
+            if (base_tree / bundle_dir / "databricks.yml").exists():
+                base_bundle = bdl.resolve(base_tree / bundle_dir, profile, target)
+                base_model, _ = _model(base_tree, base_bundle, bundle_dir)
+            else:  # bundle is new in this PR
+                base_bundle, base_model = {}, TreeModel()
         finally:
             sh(["git", "worktree", "remove", "--force", str(base_tree)], cwd=repo, check=False)
-    head_bundle = bdl.resolve(repo, profile, target)
-    head_model, head_refs = _model(repo, head_bundle)
+    head_bundle = bdl.resolve(repo / bundle_dir, profile, target)
+    head_model, head_refs = _model(repo, head_bundle, bundle_dir)
     resource_diff = bdl.diff_resources(base_bundle, head_bundle)
 
     g = ImpactGraph(target=head_bundle.get("bundle", {}).get("target", target or ""), job_diff=resource_diff)
@@ -121,7 +128,7 @@ def analyze(repo: Path, base_ref: str, profile: str, target: str | None) -> Impa
         g.node(f"res:{rid}", d["type"][:-1], change=d["change"], fields_changed=d.get("fields_changed"))
         for tk in d.get("tasks", {}):
             g.edge(f"res:{rid}", f"res:{rid}.{tk}", "contains", "bundle")
-    deployed = bdl.deployed_ids(repo, profile, target)
+    deployed = bdl.deployed_ids(repo / bundle_dir, profile, target)
     for rtype, ids in deployed.items():
         for k, did in ids.items():
             if f"res:{rtype}.{k}" in g.nodes:

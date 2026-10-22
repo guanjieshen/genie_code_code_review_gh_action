@@ -30,7 +30,7 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
     w = client_factory(s.profile)
 
     with group("Impact analysis"):
-        imp = impact.analyze(s.repo, s.base_ref, s.profile, s.target)
+        imp = impact.analyze(s.repo, s.base_ref, s.profile, s.target, s.bundle_dir)
         write_json(s.out_dir / "impact.json", imp.graph.to_dict())
 
     with group("Evidence"):

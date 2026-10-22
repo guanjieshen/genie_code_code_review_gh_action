@@ -92,6 +92,9 @@ jobs:
           bundle-target: staging
 ```
 
+> 💡 **Tip**
+> If your organization requires actions pinned to a commit SHA, use `guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.1.3`. All actions used inside this action are pinned by SHA.
+
 ### 4. Open a pull request
 
 The review appears as a comment on the pull request. Start in advisory mode (the default), then set `fail-on` once you trust the results.
@@ -107,6 +110,7 @@ The review appears as a comment on the pull request. Start in advisory mode (the
 | `client-id` | required | Reviewer service principal application ID |
 | `client-secret` | empty | OAuth secret. Leave empty to use GitHub OIDC federation (add `id-token: write` permission) |
 | `bundle-target` | bundle default | Bundle target to review against |
+| `bundle-dir` | `.` | Folder containing `databricks.yml`, for monorepos. Config paths are relative to it |
 | `warehouse-id` | auto | SQL warehouse for metadata queries |
 | `semantic` | `genie-one` | `genie-one` or `off` |
 | `fail-on` | `none` | Fail the check at `critical`, `high`, or `medium` |
@@ -114,7 +118,7 @@ The review appears as a comment on the pull request. Start in advisory mode (the
 | `genie-host` | empty | Separate workspace that serves the Genie Code model (see below) |
 | `genie-client-id` / `genie-client-secret` | `client-id` / `client-secret` | Identity for `genie-host` |
 | `on-model-unavailable` | `deterministic` | `deterministic`, `skip`, or `fail` |
-| `config-file` | `.genie-review/config.yml` | Repo config file, read from the base branch |
+| `config-file` | `<bundle-dir>/.genie-review/config.yml` | Repo config file, read from the base branch |
 | `instructions` | empty | Extra team context for the reviewer |
 | `genie-version` | `v0.2.0` | Genie Code CLI release |
 | `upload-artifacts` | `false` | Upload impact graph, evidence, and prompt for debugging |
@@ -165,6 +169,7 @@ See [docs/security.md](docs/security.md).
 ## Limitations
 
 - The Genie Code CLI is in Beta. This action pins a tested release.
+- One bundle per workflow run. In a monorepo, add one job (or workflow) per bundle with `bundle-dir` and a `paths` filter.
 - v0.1 supports Databricks Asset Bundles with Python, SQL, and notebook tasks, and Lakeflow pipelines with file or glob libraries. Repos without a bundle are not supported yet.
 - Table names built dynamically at runtime (for example from a config file) are reported as unresolved in the coverage section.
 - Lineage only shows objects the reviewer identity can see.

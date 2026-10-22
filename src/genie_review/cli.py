@@ -14,6 +14,7 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--base-ref", default="origin/main")
     p.add_argument("--profile", required=True, help="Databricks CLI profile for the target workspace")
     p.add_argument("--target", help="Bundle target")
+    p.add_argument("--bundle-dir", default=".", help="Bundle folder, relative to the repo root (for monorepos)")
     p.add_argument("--warehouse-id")
     p.add_argument("--semantic", help="genie-one | off")
     p.add_argument("--genie-model")
