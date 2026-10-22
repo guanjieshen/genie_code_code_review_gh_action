@@ -35,6 +35,7 @@ class Settings:
     genie_bin: str = "genie"
     on_model_unavailable: str = "deterministic"
     fail_on: str = "none"
+    fail_on_error: bool = False  # fail the check when the review cannot run (setup problems)
     max_findings: int = 15
     min_confidence: float = 0.6
     instructions: str = ""
@@ -106,6 +107,7 @@ def load(inputs: dict[str, Any]) -> Settings:
         genie_bin=inputs.get("genie_bin") or "genie",
         on_model_unavailable=pick("on_model_unavailable", "genie.on_model_unavailable", default="deterministic"),
         fail_on=pick("fail_on", "limits.fail_on", default="none"),
+        fail_on_error=str(pick("fail_on_error", default="false")).lower() == "true",
         max_findings=int(pick("max_findings", "limits.max_findings", default=15)),
         min_confidence=float(pick("min_confidence", "limits.min_confidence", default=0.6)),
         instructions="\n\n".join(instructions),

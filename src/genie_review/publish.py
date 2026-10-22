@@ -100,8 +100,16 @@ def fallback_summary(impact: ImpactResult) -> str:
     return "\n".join(lines) or "No Databricks resources are affected by this PR."
 
 
+def render_problem(title: str, detail: str, fixes: list[str]) -> str:
+    out = [MARKER, "## Genie data review", "", f"⚠️ **The review could not run: {title}.**", "", clean(detail, 800), "",
+           "**How to fix it**", ""]
+    out += [f"{i}. {f}" for i, f in enumerate(fixes, 1)]
+    out += ["", "<sub>This does not block the pull request. Set `fail-on-error: true` to make it fail the check.</sub>"]
+    return "\n".join(out)
+
+
 def render(impact: ImpactResult, findings: list[Finding], summary: str, coverage: list[dict[str, Any]],
-           route_note: str, notes: list[str], gaps: list[str]) -> str:
+           route_note: str, notes: list[str], access_md: str = "") -> str:
     out = [MARKER, "## Genie data review", ""]
     out += [summary or fallback_summary(impact), ""]
     if findings:
@@ -120,14 +128,16 @@ def render(impact: ImpactResult, findings: list[Finding], summary: str, coverage
     else:
         out.append("No data issues found for the checks that apply to this PR.")
         out.append("")
+    if access_md:
+        out += ["### Access the reviewer is missing", "",
+                "Some checks were limited because the reviewer identity could not read these. Findings above are still valid.", "",
+                access_md, ""]
     out.append("<details><summary>Checks and coverage</summary>\n")
     out.append("| Check | Result |\n|---|---|")
     out += [f"| `{r['check']}` | {r['status']} |" for r in coverage]
     unresolved = impact.graph.unresolved
     if unresolved:
         out.append("\n**Could not resolve:** " + "; ".join(f"`{u['file']}:{u['line']}` {u['partial'][:60]}" for u in unresolved[:5]))
-    if gaps:
-        out.append("\n**Not readable by the reviewer identity:** " + "; ".join(gaps[:6]))
     if notes:
         out.append("\n**Notes:** " + "; ".join(notes[:6]))
     out.append(f"\n{route_note}\n</details>")

@@ -93,7 +93,7 @@ jobs:
 ```
 
 > 💡 **Tip**
-> If your organization requires actions pinned to a commit SHA, use `guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.1.3`. All actions used inside this action are pinned by SHA.
+> If your organization requires actions pinned to a commit SHA, use `guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.1.4`. All actions used inside this action are pinned by SHA.
 
 ### 4. Open a pull request
 
@@ -114,6 +114,7 @@ The review appears as a comment on the pull request. Start in advisory mode (the
 | `warehouse-id` | auto | SQL warehouse for metadata queries |
 | `semantic` | `genie-one` | `genie-one` or `off` |
 | `fail-on` | `none` | Fail the check at `critical`, `high`, or `medium` |
+| `fail-on-error` | `false` | Fail the check when the review cannot run (sign-in or bundle errors). By default it explains the problem and passes |
 | `genie-model` | Genie default | Override the Genie Code model |
 | `genie-host` | empty | Separate workspace that serves the Genie Code model (see below) |
 | `genie-client-id` / `genie-client-secret` | `client-id` / `client-secret` | Identity for `genie-host` |
@@ -151,6 +152,10 @@ Genie Code's default model is not offered in every workspace. The action checks 
 3. If no model is reachable, the action posts the exact checks and impact summary, and notes that the AI review was skipped (`on-model-unavailable: deterministic`).
 
 The review comment always states which route was used. All model calls go through Genie Code and Genie One.
+
+## When access is missing
+
+The review always returns something useful. If the reviewer identity cannot read something, the comment still posts every finding it could make, and adds an **Access the reviewer is missing** table that names what it could not read, which checks were limited, and the exact grant to add for that service principal. If the review cannot run at all (for example sign-in fails or the bundle does not resolve), the comment explains why and how to fix it. Neither case blocks the pull request unless you set `fail-on-error: true`.
 
 ## Security
 
