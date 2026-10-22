@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -117,6 +118,12 @@ def resolve_route(s: Settings) -> tuple[Route | None, list[str]]:
             notes.append(f"{label}: cannot connect ({str(e)[:100]})")
             continue
         ok, why = probe(s.genie_bin, route)
+        for wait in (5, 15):  # transient gateway errors should not mark the model unavailable
+            if ok:
+                break
+            log(f"{label}: probe failed ({why[:80]}); retrying in {wait}s")
+            time.sleep(wait)
+            ok, why = probe(s.genie_bin, route)
         if ok:
             log(f"Genie Code route: {m} via {label} ({route.host})")
             return route, notes
