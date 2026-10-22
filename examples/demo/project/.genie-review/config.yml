@@ -1,0 +1,8 @@
+# Genie Data Review settings. Read from the base branch, so changes apply after merge.
+target: prod
+fail_on: none
+semantic: genie-one
+checks:
+  severity:
+    lineage.downstream-break: critical
+instructions_file: .genie-review/instructions.md

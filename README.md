@@ -97,7 +97,7 @@ jobs:
 The review appears as a comment on the pull request. Start in advisory mode (the default), then set `fail-on` once you trust the results.
 
 > 💡 **Tip**
-> Want to see it work before adding it to your repo? Use the [starter template](https://github.com/guanjieshen/genie-data-review-starter), which includes a sample bundle and a demo pull request with planted issues.
+> Starting a new project? The [Databricks GitHub Actions template](https://github.com/guanjieshen/databricks-github-actions-template) has this workflow and a bundle deploy workflow ready to go. To see the review on a pull request with planted issues, follow the [demo](examples/demo/README.md).
 
 ## Inputs
 

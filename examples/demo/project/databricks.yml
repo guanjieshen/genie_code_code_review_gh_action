@@ -1,0 +1,22 @@
+bundle:
+  name: genie_review_demo
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    default: main                # change me: a catalog you can create a schema in
+  schema:
+    default: genie_review_demo   # created by demo/setup.py
+  warehouse_id:
+    default: ""                  # change me: a SQL warehouse id
+
+targets:
+  dev:
+    mode: development
+    default: true
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}

@@ -1,0 +1,2 @@
+- Finance owns all `gold_*` tables. Net revenue always excludes cancelled and test orders.
+- `cust_id` is the customer key used by downstream finance views.
