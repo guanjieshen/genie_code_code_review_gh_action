@@ -75,3 +75,14 @@ def test_executed_files_follows_local_imports(tmp_path: Path):
 def test_sql_identifier_with_multiple_params():
     r = sql_refs("SELECT * FROM IDENTIFIER(:catalog || '.' || :schema || '.orders')", {"catalog": "main", "schema": "sales"})
     assert set(r.reads) == {"main.sales.orders"}
+
+
+def test_python_notebook_widget_parameters():
+    code = 'catalog = dbutils.widgets.get("catalog")\nspark.table("samples.nyctaxi.trips").write.saveAsTable(f"{catalog}.default.daily")\n'
+    r = python_refs(code, {"catalog": "main"})
+    assert set(r.reads) == {"samples.nyctaxi.trips"} and set(r.writes) == {"main.default.daily"}
+
+
+def test_output_columns_from_groupby_agg():
+    code = 'df.groupBy(F.to_date("ts").alias("pickup_date")).agg(F.count("*").alias("trips")).withColumn("load_ts", F.now())'
+    assert set(select_output_columns(code)) == {"load_ts", "pickup_date", "trips"}

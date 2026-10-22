@@ -218,9 +218,12 @@ def _schema_change_location(impact: ImpactResult, table: str, cols: list[str]) -
         for f in e["executes"]:
             if f in impact.changed_files and f.endswith(".py"):
                 text = (impact_repo(impact) / f).read_text(errors="replace").splitlines()
-                for i, line in enumerate(text, 1):
-                    if any(c in line for c in cols):
-                        return f, i
+                # Prefer the quoted column name (an alias or select), then any mention
+                for match in (lambda line: any(f'"{c}"' in line or f"'{c}'" in line for c in cols),
+                              lambda line: any(c in line for c in cols)):
+                    for i, line in enumerate(text, 1):
+                        if match(line):
+                            return f, i
         return e["entry"], e["writes"][table]
     return "", 1
 

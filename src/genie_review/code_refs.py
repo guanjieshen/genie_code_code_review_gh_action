@@ -146,6 +146,10 @@ class _Resolver:
                 name, v = n.targets[0].id, n.value
                 if isinstance(v, ast.Attribute) and v.attr in params:
                     self.aliases[name] = v.attr
+                elif (isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute) and v.func.attr == "get"
+                      and ast.unparse(v.func.value).endswith("widgets") and v.args
+                      and isinstance(v.args[0], ast.Constant) and v.args[0].value in params):
+                    self.aliases[name] = v.args[0].value  # catalog = dbutils.widgets.get("catalog")
                 elif isinstance(v, ast.Constant) and isinstance(v.value, str):
                     self.consts[name] = v.value
 
@@ -226,14 +230,17 @@ def python_refs(text: str, params: dict[str, str]) -> CodeRefs:
 
 
 def select_output_columns(text: str) -> list[str]:
-    """Output column names of DataFrame.select(...) calls in a module (names and aliases)."""
+    """Output column names from select/groupBy/agg/withColumn calls in a module (names and aliases)."""
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return []
     out = []
     for n in ast.walk(tree):
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "select":
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "withColumn":
+            if n.args and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str):
+                out.append(n.args[0].value)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("select", "groupBy", "agg"):
             for a in n.args:
                 if isinstance(a, ast.Constant) and isinstance(a.value, str):
                     out.append(a.value)
