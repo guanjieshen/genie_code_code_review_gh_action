@@ -60,7 +60,7 @@ def test_sign_in_failure_posts_a_fix_it_comment(repo_with_pr, tmp_path):
         raise ValueError("default auth: cannot configure default credentials")
 
     result = pipeline.run(s, client_factory=broken, publish_to_github=False)
-    assert "could not run: Could not sign in to Databricks" in result.body
+    assert "Review could not run" in result.body and "Could not sign in to Databricks" in result.body
     assert "GENIE_REVIEWER_CLIENT_ID" in result.body
     assert result.failed is False                   # setup problems do not block by default
 

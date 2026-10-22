@@ -1,0 +1,256 @@
+{
+  "ev:uc:main.shop.bronze_customers:metadata": {
+    "exists": true,
+    "type": "MANAGED",
+    "comment": "Customer master from CRM",
+    "owner": "data-eng@example.com",
+    "columns": [
+      {
+        "name": "cust_id",
+        "type": "string",
+        "comment": "Customer id as string (legacy CRM format)"
+      },
+      {
+        "name": "email",
+        "type": "string",
+        "comment": null
+      },
+      {
+        "name": "full_name",
+        "type": "string",
+        "comment": null
+      },
+      {
+        "name": "segment",
+        "type": "string",
+        "comment": "SMB | MID | ENT"
+      },
+      {
+        "name": "is_free_trial",
+        "type": "boolean",
+        "comment": null
+      }
+    ],
+    "view_definition": null
+  },
+  "ev:uc:main.shop.bronze_raw_orders:metadata": {
+    "exists": true,
+    "type": "MANAGED",
+    "comment": "Raw orders landed from the order service",
+    "owner": "data-eng@example.com",
+    "columns": [
+      {
+        "name": "order_id",
+        "type": "bigint",
+        "comment": null
+      },
+      {
+        "name": "cust_id",
+        "type": "bigint",
+        "comment": null
+      },
+      {
+        "name": "order_ts",
+        "type": "timestamp",
+        "comment": null
+      },
+      {
+        "name": "amount",
+        "type": "decimal(12,2)",
+        "comment": null
+      },
+      {
+        "name": "discount",
+        "type": "decimal(12,2)",
+        "comment": null
+      },
+      {
+        "name": "status",
+        "type": "string",
+        "comment": "PLACED | SHIPPED | CANCELLED"
+      },
+      {
+        "name": "is_test",
+        "type": "boolean",
+        "comment": "Synthetic test orders; excluded from all revenue metrics"
+      }
+    ],
+    "view_definition": null
+  },
+  "ev:uc:main.shop.gold_customer_ltv:metadata": {
+    "exists": true,
+    "type": "VIEW",
+    "comment": "Customer lifetime value. Used by the Customer 360 dashboard.",
+    "owner": "data-eng@example.com",
+    "columns": [
+      {
+        "name": "cust_id",
+        "type": "bigint",
+        "comment": "FK to bronze_customers.cust_id"
+      },
+      {
+        "name": "segment",
+        "type": "string",
+        "comment": "SMB | MID | ENT"
+      },
+      {
+        "name": "ltv",
+        "type": "decimal(22,2)",
+        "comment": null
+      }
+    ],
+    "view_definition": "SELECT o.cust_id, c.segment, SUM(o.net_amount) AS ltv\nFROM main.shop.silver_orders o\nJOIN main.shop.bronze_customers c ON cast(o.cust_id AS STRING) = c.cust_id\nWHERE o.status <> 'CANCELLED' AND NOT o.is_test GROUP BY o.cust_id, c.segment"
+  },
+  "ev:uc:main.shop.gold_exec_revenue_trend:metadata": {
+    "exists": false
+  },
+  "ev:uc:main.shop.gold_revenue_daily_v1:metadata": {
+    "exists": true,
+    "type": "MANAGED",
+    "comment": "DEPRECATED 2026-06: gross revenue including cancelled and test orders. Use gold_revenue_daily instead.",
+    "owner": "data-eng@example.com",
+    "columns": [
+      {
+        "name": "order_date",
+        "type": "date",
+        "comment": null
+      },
+      {
+        "name": "revenue",
+        "type": "decimal(22,2)",
+        "comment": null
+      }
+    ],
+    "view_definition": null
+  },
+  "ev:uc:main.shop.gold_segment_revenue_v2:metadata": {
+    "exists": false
+  },
+  "ev:uc:main.shop.gold_top_customer_contacts:metadata": {
+    "exists": false
+  },
+  "ev:uc:main.shop.silver_order_items:metadata": {
+    "exists": false
+  },
+  "ev:uc:main.shop.silver_orders:metadata": {
+    "exists": true,
+    "type": "MANAGED",
+    "comment": "Cleaned orders. Written by the orders_etl silver task.",
+    "owner": "data-eng@example.com",
+    "columns": [
+      {
+        "name": "order_id",
+        "type": "bigint",
+        "comment": null
+      },
+      {
+        "name": "cust_id",
+        "type": "bigint",
+        "comment": "FK to bronze_customers.cust_id"
+      },
+      {
+        "name": "order_date",
+        "type": "date",
+        "comment": null
+      },
+      {
+        "name": "net_amount",
+        "type": "decimal(12,2)",
+        "comment": null
+      },
+      {
+        "name": "status",
+        "type": "string",
+        "comment": null
+      },
+      {
+        "name": "is_test",
+        "type": "boolean",
+        "comment": null
+      }
+    ],
+    "view_definition": null
+  },
+  "ev:uc:main.shop.gold_revenue_daily_v1:tags": {
+    "table_tags": {
+      "deprecated": "true"
+    },
+    "column_tags": {}
+  },
+  "ev:uc:main.shop.gold_revenue_daily:tags": {
+    "table_tags": {
+      "certified": "true"
+    },
+    "column_tags": {}
+  },
+  "ev:uc:main.shop.bronze_customers:tags": {
+    "table_tags": {},
+    "column_tags": {
+      "email": {
+        "data_classification": "pii"
+      }
+    }
+  },
+  "ev:uc:main.shop.gold_revenue_metrics:metric_view": {
+    "comment": "Governed revenue metrics (Finance).",
+    "definition": "version: 1.1\n\nsource: main.shop.silver_orders\n\nfilter: status <> 'CANCELLED' AND NOT is_test\n\ndimensions:\n  - name: order_date\n    expr: order_date\n\nmeasures:\n  - name: net_revenue\n    expr: SUM(net_amount)"
+  },
+  "ev:lineage:main.shop.silver_orders:downstream": {
+    "downstream": [
+      {
+        "kind": "TABLE",
+        "name": "main.shop.gold_segment_revenue"
+      },
+      {
+        "kind": "PERSISTED_VIEW",
+        "name": "main.shop.gold_customer_ltv"
+      },
+      {
+        "kind": "TABLE",
+        "name": "main.shop.gold_revenue_daily_v1"
+      },
+      {
+        "kind": "TABLE",
+        "name": "main.shop.gold_revenue_daily"
+      },
+      {
+        "kind": "JOB",
+        "job_id": 1097751633146691
+      },
+      {
+        "kind": "JOB",
+        "job_id": 22894794292498
+      }
+    ]
+  },
+  "ev:lineage:main.shop.silver_orders.cust_id:downstream": {
+    "downstream_columns": [
+      "main.shop.gold_customer_ltv.cust_id"
+    ]
+  },
+  "ev:job:906740025351921:drift": {
+    "job_key": "orders_etl",
+    "drift": {
+      "timeout_seconds": {
+        "deployed": 7200,
+        "bundle_on_base": null
+      },
+      "tags": {
+        "deployed": {
+          "hotfix": "edited-in-ui"
+        },
+        "bundle_on_base": {}
+      }
+    }
+  },
+  "ev:workspace:spark_version:11.3.x-scala2.12": {
+    "offered_by_workspace": false,
+    "examples_offered": [
+      "15.4.x-scala2.12",
+      "16.4.x-scala2.13",
+      "16.4.x-scala2.12",
+      "17.3.x-scala2.13",
+      "18.2.x-scala2.13"
+    ]
+  }
+}

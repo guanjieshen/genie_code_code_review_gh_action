@@ -10,14 +10,13 @@ Create `.genie-review/config.yml`:
 # Bundle target to review against (same as the bundle-target input)
 target: staging
 
-# Fail the check at this severity or above: none | critical | high | medium
+# Fail the check: none | blocker (merge-impact policy) | critical | high | medium
 fail_on: none
 
 # Semantic checks backend: genie-one | off
 semantic: genie-one
 
 max_findings: 15
-min_confidence: 0.6
 
 checks:
   # Turn individual checks off
@@ -25,6 +24,20 @@ checks:
   # Override severities
   severity:
     lineage.downstream-break: critical
+
+report:
+  categories: [contracts, correctness, semantics, lineage, governance, deployment]
+  min_severity: low                # hide findings below this severity
+  prominent_min_confidence: high   # "Needs attention" only shows findings at or above this confidence
+  show_low_confidence: false       # low-confidence observations stay in review.json only
+  include_info: false
+  group_related: true              # show related checks of one root cause as one issue
+  max_priority: 3                  # findings expanded under "Needs attention"
+
+merge_policy:
+  block_severities: [critical]
+  block_min_confidence: confirmed
+  block_categories: [contracts, lineage, deployment]
 
 genie:
   model: ""                        # leave empty for Genie Code's default
@@ -36,10 +49,11 @@ instructions_file: .genie-review/instructions.md
 | Key | Default | Description |
 |---|---|---|
 | `target` | bundle default | Bundle target |
-| `fail_on` | `none` | Severity that fails the check |
+| `fail_on` | `none` | `blocker` fails on any blocker; a severity fails at that severity or above |
 | `semantic` | `genie-one` | `genie-one` or `off` |
-| `max_findings` | `15` | Maximum findings in the comment |
-| `min_confidence` | `0.6` | Minimum confidence for Genie findings (exact checks always count) |
+| `max_findings` | `15` | Maximum issues in the comment |
+| `report.*` | see above | What the comment shows. `review.json` always keeps every finding |
+| `merge_policy.*` | see above | Which findings are blockers. Blockers only fail the check when `fail_on: blocker` |
 | `checks.disable` | `[]` | Check ids to turn off |
 | `checks.severity` | `{}` | Severity overrides by check id |
 | `genie.model` | Genie default | Genie Code model override |

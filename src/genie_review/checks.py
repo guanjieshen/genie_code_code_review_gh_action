@@ -103,6 +103,12 @@ def plan(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list[PlanItem
 # ------------------------------------------------------------------ deterministic checks
 
 
+def _short(fqn: str) -> str:
+    """Display name: drop catalog and schema (the full name appears in the evidence)."""
+    parts = fqn.split(".")
+    return ".".join(parts[2:]) if len(parts) > 3 else parts[-1]
+
+
 def _locate(impact: ImpactResult, table: str, rel: str) -> tuple[str, int]:
     for e in impact.head.entries.values():
         if table in e[rel]:
@@ -133,7 +139,7 @@ def deterministic(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list
         meta = ev.facts.get(f"ev:uc:{t}:metadata", {})
         if meta.get("exists") is False and t not in written:
             f, line = _locate(impact, t, "reads")
-            add("contract.unknown-object", "critical", f, line, f"`{t}` does not exist",
+            add("contract.unknown-object", "critical", f, line, f"`{_short(t)}` does not exist in the target workspace",
                 f"The code reads `{t}`, which does not exist in the target workspace and is not created by this PR.",
                 [f"ev:uc:{t}:metadata"], "Create the table first, fix the name, or add the task that produces it.")
 
@@ -147,7 +153,7 @@ def deterministic(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list
             added = {c.lower() for c in (g.nodes.get(f"uc:{t}", {}).get("columns") or {}).get("added", [])}
             for c, line in cols.items():
                 if c.lower() not in live and c.lower() not in added:
-                    add("contract.column-mismatch", "high", entry, line, f"`{t.split('.')[-1]}.{c}` does not exist",
+                    add("contract.column-mismatch", "high", entry, line, f"Column `{c}` does not exist on `{_short(t)}`",
                         f"`{t}` has no column `{c}`. Live columns: {', '.join(sorted(live))}.",
                         [f"ev:uc:{t}:metadata"])
 
@@ -167,7 +173,8 @@ def deterministic(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list
             if lf and rf and lf != rf:
                 add("contract.type-mismatch", "medium", entry, j["line"],
                     f"Join compares {ltype} `{lc}` with {rtype} `{rc}`",
-                    f"`{lt}.{lc}` is {ltype} and `{rt}.{rc}` is {rtype}. The join relies on an implicit cast, which is slow and can silently drop or mismatch rows.",
+                    f"`{_short(lt)}.{lc}` is {ltype} and `{_short(rt)}.{rc}` is {rtype}, so Spark casts one side implicitly. "
+                    "Whether rows are lost depends on the data: values that do not convert become NULL and do not match.",
                     [f"ev:uc:{lt}:metadata", f"ev:uc:{rt}:metadata"],
                     "Cast explicitly to a common type, or align the column types at the source.")
 
@@ -179,16 +186,16 @@ def deterministic(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list
             continue
         removed = n["columns"]["removed"]
         file, line = _schema_change_location(impact, t, n["columns"]["added"] + removed)
-        add("contract.write-schema", "high", file, line, f"Write changes the schema of existing table `{t.split('.')[-1]}`",
-            f"`{t}` currently has {', '.join(removed)}; this PR stops writing {', '.join(removed)} and adds {', '.join(n['columns']['added']) or 'nothing'}.",
+        add("contract.write-schema", "high", file, line, f"Write changes the schema of `{_short(t)}`",
+            f"`{t}` currently has `{'`, `'.join(removed)}`; this PR stops writing it and adds `{'`, `'.join(n['columns']['added']) or 'nothing'}`.",
             [f"ev:uc:{t}:metadata"], "Plan the migration: keep the old column during a transition, or update consumers in the same change.")
         broken = []
         for c in removed:
             broken += ev.facts.get(f"ev:lineage:{t}.{c}:downstream", {}).get("downstream_columns", [])
         if broken:
             add("lineage.downstream-break", "critical", file, line,
-                f"Removing `{', '.join(removed)}` breaks {len(broken)} downstream column(s)",
-                f"Column lineage shows these consumers of `{t}.{', '.join(removed)}`: {', '.join(broken)}.",
+                f"Removing `{', '.join(removed)}` from `{_short(t)}` breaks {len(broken)} downstream column(s)",
+                f"Column lineage shows these consumers of `{_short(t)}.{', '.join(removed)}`: {', '.join(f'`{_short(b)}`' for b in broken)}.",
                 [f"ev:lineage:{t}.{c}:downstream" for c in removed] + [f"ev:lineage:{t}:downstream"],
                 "Update or migrate the downstream objects before (or with) this change.")
 
@@ -242,16 +249,34 @@ def impact_repo(impact: ImpactResult):
     return impact.repo  # set by the pipeline
 
 
-def coverage(plan_items: list[PlanItem], findings: list[Finding], enabled: set[str], gaps: list[str]) -> list[dict[str, Any]]:
-    planned = {p.check for p in plan_items}
+GENIE_CHECKS = {"semantic.metric-definition-drift", "semantic.non-authoritative-source", "governance.tagged-data-flow"}
+
+
+def coverage(plan_items: list[PlanItem], findings: list[Finding], enabled: set[str], ev: Evidence,
+             genie_ran: bool = True) -> list[dict[str, Any]]:
+    """Per-check status: N finding(s) | no issues found | could not run | insufficient evidence | not relevant | not enabled.
+
+    "No issues found" is only claimed when the check ran with the evidence it needed.
+    """
+    planned: dict[str, list[str]] = {}
+    for p in plan_items:
+        planned.setdefault(p.check, []).append(p.target)
     rows = []
     for cid in CATALOG:
         n = sum(1 for f in findings if f.check == cid)
+        targets = planned.get(cid, [])
+        unreadable = [t for t in targets if ev.facts.get(f"ev:uc:{t}:metadata", {}).get("access") is not None]
         if cid not in enabled:
             status = "not enabled"
-        elif cid not in planned:
+        elif n:
+            status = f"{n} finding{'s' if n != 1 else ''}"
+        elif not targets:
             status = "not relevant to this PR"
+        elif cid in GENIE_CHECKS and not genie_ran:
+            status = "could not run"
+        elif unreadable and len(unreadable) == len(targets):
+            status = "insufficient evidence"
         else:
-            status = f"{n} finding(s)" if n else "passed"
+            status = "no issues found" + (" (some objects unreadable)" if unreadable else "")
         rows.append({"check": cid, "status": status})
     return rows

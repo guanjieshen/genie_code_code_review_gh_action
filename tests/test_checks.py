@@ -50,6 +50,7 @@ def test_disabled_check_produces_no_findings(scenario):
 def test_coverage_reports_status_for_every_check(scenario):
     impact, ev = scenario
     p = plan(impact, ev, ALL)
-    rows = {r["check"]: r["status"] for r in coverage(p, deterministic(impact, ev, ALL), ALL, [])}
+    rows = {r["check"]: r["status"] for r in coverage(p, deterministic(impact, ev, ALL), ALL, ev, genie_ran=False)}
     assert rows["semantic.non-authoritative-source"] == "not relevant to this PR"
-    assert rows["deploy.drift"] == "1 finding(s)"
+    assert rows["deploy.drift"] == "1 finding"
+    assert rows["governance.tagged-data-flow"] == "could not run"      # needs Genie, which did not run

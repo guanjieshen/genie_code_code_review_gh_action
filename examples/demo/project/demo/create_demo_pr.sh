@@ -10,4 +10,4 @@ git add src resources
 git commit -m "Add segment revenue v2 and exec KPIs; rename cust_id to customer_id"
 git push -u origin "$branch"
 gh pr create --title "Add segment revenue v2 and exec KPIs" \
-  --body "Demo pull request with planted data issues. See demo/EXPECTED.md for what Genie Data Review should find."
+  --body "Demo pull request with planted data issues. See demo/EXPECTED.md for what Lakehouse Review should find."

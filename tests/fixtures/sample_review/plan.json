@@ -1,0 +1,97 @@
+[
+  {
+    "check": "contract.unknown-object",
+    "target": "main.shop.bronze_customers",
+    "why": "table read by an impacted task"
+  },
+  {
+    "check": "contract.column-mismatch",
+    "target": "main.shop.bronze_customers",
+    "why": "code references columns on this table"
+  },
+  {
+    "check": "governance.tagged-data-flow",
+    "target": "main.shop.bronze_customers",
+    "why": "source has governance-tagged columns"
+  },
+  {
+    "check": "contract.unknown-object",
+    "target": "main.shop.bronze_raw_orders",
+    "why": "table read by an impacted task"
+  },
+  {
+    "check": "contract.unknown-object",
+    "target": "main.shop.gold_customer_ltv",
+    "why": "table read by an impacted task"
+  },
+  {
+    "check": "contract.column-mismatch",
+    "target": "main.shop.gold_customer_ltv",
+    "why": "code references columns on this table"
+  },
+  {
+    "check": "contract.unknown-object",
+    "target": "main.shop.gold_revenue_daily_v1",
+    "why": "table read by an impacted task"
+  },
+  {
+    "check": "semantic.non-authoritative-source",
+    "target": "main.shop.gold_revenue_daily_v1",
+    "why": "source is marked deprecated"
+  },
+  {
+    "check": "contract.unknown-object",
+    "target": "main.shop.silver_order_items",
+    "why": "table read by an impacted task"
+  },
+  {
+    "check": "contract.unknown-object",
+    "target": "main.shop.silver_orders",
+    "why": "table read by an impacted task"
+  },
+  {
+    "check": "contract.column-mismatch",
+    "target": "main.shop.silver_orders",
+    "why": "code references columns on this table"
+  },
+  {
+    "check": "contract.type-mismatch",
+    "target": "joins",
+    "why": "code joins tables on columns"
+  },
+  {
+    "check": "semantic.metric-definition-drift",
+    "target": "main.shop.gold_exec_revenue_trend",
+    "why": "new output near a governed metric view"
+  },
+  {
+    "check": "semantic.metric-definition-drift",
+    "target": "main.shop.gold_segment_revenue_v2",
+    "why": "new output near a governed metric view"
+  },
+  {
+    "check": "semantic.metric-definition-drift",
+    "target": "main.shop.gold_top_customer_contacts",
+    "why": "new output near a governed metric view"
+  },
+  {
+    "check": "contract.write-schema",
+    "target": "main.shop.silver_orders",
+    "why": "written table's columns change"
+  },
+  {
+    "check": "lineage.downstream-break",
+    "target": "main.shop.silver_orders",
+    "why": "columns removed: ['cust_id']"
+  },
+  {
+    "check": "deploy.drift",
+    "target": "jobs.orders_etl",
+    "why": "job changes and is already deployed"
+  },
+  {
+    "check": "deploy.runtime-support",
+    "target": "clusters",
+    "why": "PR defines cluster specs"
+  }
+]

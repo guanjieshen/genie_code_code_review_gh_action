@@ -1,6 +1,6 @@
 from genie_review.genie import GenieRun
 from genie_review.models import Finding, PlanItem
-from genie_review.publish import MARKER, clean, genie_findings, merge, render, should_fail
+from genie_review.publish import clean, genie_findings, merge, should_fail
 
 PLAN = [PlanItem("semantic.metric-definition-drift", "t", "why"), PlanItem("governance.tagged-data-flow", "t", "why")]
 EV = {"ev:uc:main.s.t:metadata", "ev:uc:main.s.c:tags"}
@@ -8,7 +8,7 @@ EV = {"ev:uc:main.s.t:metadata", "ev:uc:main.s.c:tags"}
 
 def _gf(**kw):
     base = {"check": "governance.tagged-data-flow", "severity": "high", "file": "a.py", "line": 3, "title": "PII copied",
-            "explanation": "x", "evidence": ["ev:uc:main.s.c:tags"], "suggestion": "", "confidence": 0.9}
+            "explanation": "x", "evidence": ["ev:uc:main.s.c:tags"], "impact": "", "suggestion": "", "confidence": 0.9}
     base.update(kw)
     return base
 
@@ -56,13 +56,10 @@ def test_merge_dedupes_and_orders_by_severity():
     assert [f.title for f in merged] == ["t3", "t"]
 
 
-def test_render_has_marker_and_coverage(scenario):
-    impact, _ = scenario
-    body = render(impact, [], "", [{"check": "deploy.drift", "status": "passed"}], "Reviewer: x.", [], [])
-    assert body.startswith(MARKER) and "No data issues found" in body and "`deploy.drift` | passed" in body
-
-
 def test_should_fail_threshold():
     fs = [Finding("c", "high", "a", 1, "t", "e", [])]
     assert not should_fail(fs, "none") and not should_fail(fs, "critical")
     assert should_fail(fs, "high") and should_fail(fs, "medium")
+    assert not should_fail(fs, "blocker")
+    fs[0].merge_impact = "blocker"
+    assert should_fail(fs, "blocker")

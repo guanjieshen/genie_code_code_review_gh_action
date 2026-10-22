@@ -16,8 +16,7 @@ from .impact import ImpactResult
 from .models import SEVERITIES, Finding, PlanItem
 from .prompt import resource_text
 
-MARKER = "<!-- genie-data-review -->"
-SEV_ICON = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵", "info": "⚪"}
+from .render import MARKER, render_problem  # noqa: E402,F401  (re-exported for callers)
 
 
 # ------------------------------------------------------------------ sanitize model text
@@ -60,14 +59,14 @@ def genie_findings(run: GenieRun, plan: list[PlanItem], evidence_ids: set[str], 
         if not grounded:
             notes.append(f"dropped ungrounded finding: {f['title'][:60]}")
             continue
-        if f["confidence"] < min_conf:
-            continue
         out.append(Finding(f["check"], f["severity"], f["file"], f["line"], clean(f["title"], 160), clean(f["explanation"]),
-                           grounded, clean(f["suggestion"], 400), f["confidence"], "genie"))
+                           grounded, clean(f["suggestion"], 400), f["confidence"], "genie", impact=clean(f.get("impact", ""), 400)))
     return out, notes, clean(run.output.get("impact_summary", ""), 1500)
 
 
-def merge(det: list[Finding], gen: list[Finding], severity_overrides: dict[str, str], cap: int) -> list[Finding]:
+def merge(det: list[Finding], gen: list[Finding], severity_overrides: dict[str, str], cap: int | None = None) -> list[Finding]:
+    """Combine exact and Genie findings. A Genie finding that repeats an exact one (same check and place) is dropped.
+    Nothing else is discarded here; display limits are applied when rendering."""
     merged = list(det)
     for g in gen:
         dup = any(d.check == g.check and d.file == g.file and (abs(d.line - g.line) <= 2 or set(d.evidence) & set(g.evidence))
@@ -78,7 +77,7 @@ def merge(det: list[Finding], gen: list[Finding], severity_overrides: dict[str, 
         if f.check in severity_overrides:
             f.severity = severity_overrides[f.check]
     merged.sort(key=lambda f: (SEVERITIES.index(f.severity), f.file, f.line))
-    return merged[:cap]
+    return merged[:cap] if cap else merged
 
 
 # ------------------------------------------------------------------ render
@@ -98,50 +97,6 @@ def fallback_summary(impact: ImpactResult) -> str:
     if reads:
         lines.append(f"Tables read: {len(reads)}.")
     return "\n".join(lines) or "No Databricks resources are affected by this PR."
-
-
-def render_problem(title: str, detail: str, fixes: list[str]) -> str:
-    out = [MARKER, "## Genie data review", "", f"⚠️ **The review could not run: {title}.**", "", clean(detail, 800), "",
-           "**How to fix it**", ""]
-    out += [f"{i}. {f}" for i, f in enumerate(fixes, 1)]
-    out += ["", "<sub>This does not block the pull request. Set `fail-on-error: true` to make it fail the check.</sub>"]
-    return "\n".join(out)
-
-
-def render(impact: ImpactResult, findings: list[Finding], summary: str, coverage: list[dict[str, Any]],
-           route_note: str, notes: list[str], access_md: str = "") -> str:
-    out = [MARKER, "## Genie data review", ""]
-    out += [summary or fallback_summary(impact), ""]
-    if findings:
-        counts = {s: sum(1 for f in findings if f.severity == s) for s in SEVERITIES}
-        out.append("**" + " · ".join(f"{SEV_ICON[s]} {n} {s}" for s, n in counts.items() if n) + "**")
-        out.append("")
-        for f in findings:
-            loc = f"`{f.file}:{f.line}`" if f.file else ""
-            out.append(f"#### {SEV_ICON[f.severity]} {f.title}")
-            out.append(f"{loc} · `{f.check}`" + (" · found by Genie" if f.source == "genie" else ""))
-            out.append("")
-            out.append(f.explanation)
-            if f.suggestion:
-                out.append(f"\n**Suggestion:** {f.suggestion}")
-            out.append(f"\n<sub>Evidence: {', '.join(f'`{e[:90]}`' for e in f.evidence)}</sub>\n")
-    else:
-        out.append("No data issues found for the checks that apply to this PR.")
-        out.append("")
-    if access_md:
-        out += ["### Access the reviewer is missing", "",
-                "Some checks were limited because the reviewer identity could not read these. Findings above are still valid.", "",
-                access_md, ""]
-    out.append("<details><summary>Checks and coverage</summary>\n")
-    out.append("| Check | Result |\n|---|---|")
-    out += [f"| `{r['check']}` | {r['status']} |" for r in coverage]
-    unresolved = impact.graph.unresolved
-    if unresolved:
-        out.append("\n**Could not resolve:** " + "; ".join(f"`{u['file']}:{u['line']}` {u['partial'][:60]}" for u in unresolved[:5]))
-    if notes:
-        out.append("\n**Notes:** " + "; ".join(notes[:6]))
-    out.append(f"\n{route_note}\n</details>")
-    return "\n".join(out)
 
 
 # ------------------------------------------------------------------ GitHub
@@ -194,6 +149,8 @@ def set_outputs(**kv: Any) -> None:
 def should_fail(findings: list[Finding], fail_on: str) -> bool:
     if fail_on == "none":
         return False
+    if fail_on == "blocker":
+        return any(f.merge_impact == "blocker" for f in findings)
     limit = SEVERITIES.index(fail_on)
     return any(SEVERITIES.index(f.severity) <= limit for f in findings)
 

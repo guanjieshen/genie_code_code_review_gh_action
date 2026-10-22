@@ -7,13 +7,18 @@ to fix it, and the rest of the review still runs where it can.
 
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass, field
 from typing import Callable
 
 from databricks.sdk import WorkspaceClient
 
-from . import checks, evidence, genie, impact, prompt, publish
+from . import __version__, checks, evidence, genie, impact, prompt, publish, render
 from .access import classify
+from .correlate import correlate, needs_attention
+from .normalize import Policy, normalize, visible
+from .render import Review
 from .config import Settings
 from .models import Finding
 from .util import group, log, write_json
@@ -43,8 +48,8 @@ def _publish(s: Settings, body: str, findings: list[Finding], publish_to_github:
 def _problem(s: Settings, title: str, detail: str, fixes: list[str], publish_to_github: bool) -> Result:
     """The review could not run at all: say why and how to fix it."""
     log(f"{title}: {detail}")
-    print(f"::warning title=Genie Data Review::{title}. See the PR comment for how to fix it.")
-    body = publish.render_problem(title, detail, fixes)
+    print(f"::warning title=Lakehouse Review::{title}. See the PR comment for how to fix it.")
+    body = render.render_problem(title, detail, fixes)
     url = _publish(s, body, [], publish_to_github)
     return Result([], body, "Reviewer: not run.", url, failed=s.fail_on_error, notes=[detail])
 
@@ -70,7 +75,7 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
 
     # ---- impact analysis
     try:
-        with group("Impact analysis"):
+        with group("Analyze: impact"):
             imp = impact.analyze(s.repo, s.base_ref, s.profile, s.target, s.bundle_dir)
             write_json(s.out_dir / "impact.json", imp.graph.to_dict())
     except Exception as e:  # noqa: BLE001
@@ -83,7 +88,7 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                         publish_to_github)
 
     # ---- evidence (each failed read becomes an access gap, never a crash)
-    with group("Evidence"):
+    with group("Analyze: evidence"):
         try:
             warehouse = evidence.pick_warehouse(w, s.warehouse_id)
         except Exception as e:  # noqa: BLE001
@@ -100,11 +105,12 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
 
     # ---- Genie review (optional; exact checks above always post)
     notes: list[str] = []
+    genie_ran = False
     gen: list[Finding] = []
     summary = ""
     route_note = "Reviewer: exact checks only."
     if plan:
-        with group("Genie review"):
+        with group("Analyze: Genie review"):
             try:
                 route, route_notes = genie.resolve_route(s)
             except Exception as e:  # noqa: BLE001
@@ -126,6 +132,7 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                     gr = genie.run_review(s, route, text, schema, use_g1)
                 except Exception as e:  # noqa: BLE001
                     gr = genie.GenieRun(route, error=classify(e))
+                genie_ran = gr.output is not None
                 if gr.error:
                     notes.append(f"Genie review incomplete: {gr.error}")
                 for err in gr.mcp_errors:
@@ -139,10 +146,31 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                                   else "; semantics: Genie One available, not needed") if use_g1 else "") + ".")
                 write_json(s.out_dir / "genie_output.json", gr.output or {"error": gr.error})
 
-    findings = publish.merge(det, gen, s.severity, s.max_findings)
-    cov = checks.coverage(plan, findings, enabled, ev.gaps)
-    body = publish.render(imp, findings, summary, cov, route_note, notes, ev.access.render())
+    # ---- process results: normalize -> filter -> correlate -> prioritize
+    findings = publish.merge(det, gen, s.severity)
+    normalize(findings, ev.facts, Policy(s.block_severities, s.block_min_confidence, s.block_categories))
+    shown = [f for f in findings if visible(f, s.categories, s.min_severity, s.show_low_confidence, s.include_info)]
+    groups = correlate(shown, ev.facts, s.group_related)[: s.max_findings]
+    priority = needs_attention(groups, s.max_priority, s.prominent_min_confidence)
+
+    # ---- report
+    review = Review(
+        summary=summary or publish.fallback_summary(imp), groups=groups, priority=priority, findings=findings,
+        hidden=len(findings) - sum(len(g.findings) for g in groups),
+        coverage=checks.coverage(plan, findings, enabled, ev, genie_ran), access_md=ev.access.render(),
+        access_count=len(ev.access.gaps), route_note=route_note, notes=notes)
+    body = render.markdown(review, link_context(s))
+    write_json(s.out_dir / "review.json", render.to_json(review, __version__))
     url = _publish(s, body, findings, publish_to_github)
     if ev.access.gaps:
-        print(f"::warning title=Genie Data Review::The reviewer could not read {len(ev.access.gaps)} thing(s). See the PR comment for the grants to add.")
+        print(f"::warning title=Lakehouse Review::The reviewer could not read {len(ev.access.gaps)} thing(s). See the PR comment for the grants to add.")
     return Result(findings, body, route_note, url, publish.should_fail(findings, s.fail_on), notes)
+
+
+def link_context(s: Settings) -> render.LinkContext:
+    """File links point at the PR head commit, so line numbers match the reviewed code."""
+    sha = os.environ.get("GITHUB_SHA", "")
+    event = os.environ.get("GITHUB_EVENT_PATH")
+    if event and os.path.exists(event):
+        sha = ((json.load(open(event)).get("pull_request") or {}).get("head") or {}).get("sha") or sha
+    return render.LinkContext(os.environ.get("GITHUB_SERVER_URL", ""), os.environ.get("GITHUB_REPOSITORY", ""), sha, s.bundle_dir)

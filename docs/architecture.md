@@ -16,8 +16,29 @@ pull_request
 4. Genie review         route check → Genie Code (read-only sandbox) with plan + evidence;
    │                    Genie One MCP for business definitions
    ▼
-5. Publish              validate, require evidence, merge, rank → one PR comment
+5. Process results      normalize (area, confidence, merge impact) → correlate → prioritize
+   │
+   ▼
+6. Report + publish     review.json + Markdown → one PR comment (updated in place) + job summary
 ```
+
+| Stage | Module |
+|---|---|
+| Change discovery | `impact.py`, `bundle.py`, `code_refs.py` |
+| Evidence collection | `evidence.py`, `access.py` |
+| Detection | `checks.py` (exact checks), `genie.py` + `prompt.py` (Genie) |
+| Validation | `publish.genie_findings` (schema, plan, evidence grounding, sanitizing) |
+| Normalization | `normalize.py` (review area, evidence-based confidence, merge-impact policy, stable ids) |
+| Correlation and prioritization | `correlate.py` (root-cause grouping, deterministic ordering, "Needs attention") |
+| Rendering | `render.py` (Markdown and `review.json`) |
+| Publishing | `publish.py` (PR comment, job summary, outputs, check status) |
+
+### Confidence and grouping rules
+
+- Exact checks backed by verified metadata, column lineage, deployed state, or workspace APIs are **confirmed**. Type mismatches are **high**: the types are verified, but whether rows are lost depends on the data.
+- Genie semantic findings anchored to a metric view or a certified or deprecated dataset are **high**; otherwise **medium**. Governance findings are **medium** unless permissions and masking evidence exist. Genie's own score can only lower confidence.
+- Findings that cite only unreadable metadata are **low** and hidden from the comment.
+- Grouping uses two rules: a schema change on an existing table and the downstream break it causes (same table, same file), and semantic findings about the same deprecated dataset in the same file. Every other finding is its own issue.
 
 ### Impact analysis
 

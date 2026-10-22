@@ -16,4 +16,4 @@
 | 10 | Deploying overwrites the on-call edit to the job | `resources/orders_etl.job.yml` | `deploy.drift` | Deployed job settings |
 | 11 | `silver_order_items` does not exist | `src/gold_segment_revenue_v2.sql` | `contract.unknown-object` | Table existence |
 
-The review may also mention issues outside this list. A general code reviewer (for example GitHub Copilot) should catch the one plain logic bug in the pull request: `SUM(o.net_amount)` after joining order items counts each order once per item. Genie Data Review intentionally does not report it, because it does not need workspace context.
+The review may also mention issues outside this list. A general code reviewer (for example GitHub Copilot) should catch the one plain logic bug in the pull request: `SUM(o.net_amount)` after joining order items counts each order once per item. Lakehouse Review intentionally does not report it, because it does not need workspace context.

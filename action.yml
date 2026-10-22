@@ -1,5 +1,5 @@
-name: Genie Data Review
-description: Data-specific pull request review for Databricks, powered by Genie Code and Genie One. Runs alongside general code review.
+name: Lakehouse Review
+description: Databricks-aware code reviews with Genie-powered semantic analysis.
 author: Guanjie Shen
 branding:
   icon: database
@@ -33,7 +33,7 @@ inputs:
     required: false
     default: ""
   fail-on:
-    description: Fail the check at this severity or above. `none`, `critical`, `high`, or `medium`.
+    description: Fail the check on any merge blocker (`blocker`), or at a severity or above (`critical`, `high`, `medium`). Default `none` only comments.
     required: false
     default: ""
   fail-on-error:
@@ -77,7 +77,7 @@ inputs:
     required: false
     default: v0.2.0
   upload-artifacts:
-    description: Upload the impact graph, evidence, and prompt as a workflow artifact for debugging. They contain table and column metadata, so keep this off in public repositories.
+    description: Upload review.json, the impact graph, evidence, and prompt as a workflow artifact for debugging. They contain table and column metadata, so keep this off in public repositories.
     required: false
     default: "false"
   github-token:
@@ -99,7 +99,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Check event
+    - name: "Initialize: check event"
       id: guard
       shell: bash
       env:
@@ -108,24 +108,24 @@ runs:
         EVENT: ${{ github.event_name }}
       run: |
         if [[ "$EVENT" != "pull_request" ]]; then
-          echo "::notice::Genie Data Review runs on pull_request events only. Skipping."
+          echo "::notice::Lakehouse Review runs on pull_request events only. Skipping."
           echo "run=false" >> "$GITHUB_OUTPUT"
         elif [[ "$HEAD_REPO" != "$THIS_REPO" ]]; then
-          echo "::notice::Pull requests from forks do not receive secrets. Skipping Genie Data Review."
+          echo "::notice::Pull requests from forks do not receive secrets. Skipping Lakehouse Review."
           echo "run=false" >> "$GITHUB_OUTPUT"
         else
           echo "run=true" >> "$GITHUB_OUTPUT"
         fi
 
-    - name: Set up uv
+    - name: "Initialize: set up uv"
       if: steps.guard.outputs.run == 'true'
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
-    - name: Set up Databricks CLI
+    - name: "Initialize: set up Databricks CLI"
       if: steps.guard.outputs.run == 'true'
       uses: databricks/setup-cli@9b64c94a6d2b2e830592d80e9f14c26d32b42ad7 # v1.20.0
 
-    - name: Install Genie Code CLI
+    - name: "Initialize: install Genie Code CLI"
       if: steps.guard.outputs.run == 'true'
       shell: bash
       env:
@@ -155,7 +155,7 @@ runs:
         echo "$dir/bin" >> "$GITHUB_PATH"
         echo "GENIE_BIN=$dir/bin/genie" >> "$GITHUB_ENV"
 
-    - name: Configure Databricks auth
+    - name: "Initialize: configure Databricks auth"
       if: steps.guard.outputs.run == 'true'
       shell: bash
       env:
@@ -192,9 +192,9 @@ runs:
         # $GITHUB_ENV applies to later steps only, so export it for the check below too.
         export DATABRICKS_CONFIG_FILE="$cfg"
         # Do not fail here: the review step posts a comment that explains how to fix sign-in.
-        databricks current-user me -p genie-review > /dev/null 2>&1 || echo "::warning title=Genie Data Review::Could not sign in to $HOST with the reviewer identity."
+        databricks current-user me -p genie-review > /dev/null 2>&1 || echo "::warning title=Lakehouse Review::Could not sign in to $HOST with the reviewer identity."
 
-    - name: Install dependencies
+    - name: "Initialize: install dependencies"
       if: steps.guard.outputs.run == 'true'
       shell: bash
       env:
@@ -209,14 +209,14 @@ runs:
           -r "$GITHUB_ACTION_PATH/requirements.lock" "${index[@]}"
         echo "GENIE_REVIEW_PYTHON=$venv/bin/python" >> "$GITHUB_ENV"
 
-    - name: Fetch base branch
+    - name: "Initialize: fetch base branch"
       if: steps.guard.outputs.run == 'true'
       shell: bash
       env:
         BASE_REF: ${{ github.base_ref }}
       run: git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
-    - name: Review
+    - name: "Analyze, process, and publish the review"
       id: review
       if: steps.guard.outputs.run == 'true'
       shell: bash
@@ -250,7 +250,7 @@ runs:
         [[ -n "$INSTRUCTIONS" ]] && args+=(--instructions "$INSTRUCTIONS")
         PYTHONPATH="$GITHUB_ACTION_PATH/src" "$GENIE_REVIEW_PYTHON" -m genie_review.cli "${args[@]}"
 
-    - name: Explain setup failure on the pull request
+    - name: "Publish: explain setup failure on the pull request"
       # Runs only when setup failed before the review could start, so the PR still gets an explanation.
       if: failure() && steps.guard.outputs.run == 'true' && steps.review.outcome == 'skipped'
       shell: bash
@@ -260,7 +260,7 @@ runs:
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         marker='<!-- genie-data-review -->'
-        body=$(printf '%s\n## Genie data review\n\n⚠️ **The review could not start on this runner.**\n\nCommon causes:\n\n1. The runner cannot reach pypi.org. Set `python-index-url` to your package mirror.\n2. The runner cannot reach github.com to download the Genie Code CLI.\n3. The runner cannot reach the Databricks workspace.\n\nSee the [job log](%s) for the failing step.\n\n<sub>This does not block the pull request unless the check is required.</sub>' "$marker" "$RUN_URL")
+        body=$(printf '%s\n# Lakehouse Review\n\n⚠️ **The review could not start on this runner.**\n\nCommon causes:\n\n1. The runner cannot reach pypi.org. Set `python-index-url` to your package mirror.\n2. The runner cannot reach github.com to download the Genie Code CLI.\n3. The runner cannot reach the Databricks workspace.\n\nSee the [job log](%s) for the failing step.\n\n<sub>This does not block the pull request unless the check is required.</sub>' "$marker" "$RUN_URL")
         api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/${PR}/comments"
         auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json")
         existing=$(curl -fsSL "${auth[@]}" "${api}?per_page=100" | jq -r --arg m "$marker" '[.[] | select(.body | contains($m))][0].url // empty')
@@ -268,7 +268,7 @@ runs:
         if [[ -n "$existing" ]]; then curl -fsSL -X PATCH "${auth[@]}" "$existing" -d "$payload" > /dev/null
         else curl -fsSL -X POST "${auth[@]}" "$api" -d "$payload" > /dev/null; fi
 
-    - name: Upload review artifacts
+    - name: "Publish: upload review artifacts"
       if: always() && steps.guard.outputs.run == 'true' && inputs.upload-artifacts == 'true'
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
