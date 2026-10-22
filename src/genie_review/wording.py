@@ -97,6 +97,7 @@ def _exact(rule: str, p: dict[str, Any]) -> dict[str, str]:
 
 # Default fixes for rules whose findings come from the AI review, used when none is given.
 DEFAULT_RECOMMENDATION = {
+    "ontology.identifier-relationship": "Join through the mapping or conversion the business definition requires, instead of comparing the identifiers directly.",
     "semantic.metric-definition-drift": "Compute the metric from its governed definition (metric view or certified dataset), or document why this output differs.",
     "semantic.non-authoritative-source": "Read the authoritative dataset instead of the deprecated or uncertified one.",
     "governance.tagged-data-flow": "Apply the source's classification tags (and any masking or access policy) to the target before writing classified columns.",
@@ -113,6 +114,9 @@ def validation_note(rule: str, confidence: str, p: dict[str, Any], anchored: boo
         return ""
     if rule == "governance.tagged-data-flow":
         return "Check the target's grants, column masks, and row filters. This review saw classification tags only, not effective access."
+    if rule == "ontology.identifier-relationship":
+        return "Confirm that the cited business definition applies to these tables." if anchored else \
+            "No authoritative definition was cited. Confirm the identifier relationship with the data owner."
     if rule.startswith("semantic.") and not anchored:
         return "Confirm which definition applies. No metric view or certified dataset was found for this output."
     return "Confirm against the cited metadata before acting."

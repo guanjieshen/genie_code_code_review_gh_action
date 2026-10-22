@@ -17,6 +17,10 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--bundle-dir", default=".", help="Bundle folder, relative to the repo root (for monorepos)")
     p.add_argument("--warehouse-id")
     p.add_argument("--semantic", help="genie-one | off")
+    p.add_argument("--depth", help="rapid | detailed")
+    p.add_argument("--ontology-budget", help="Genie One questions per PR in detailed mode")
+    p.add_argument("--ontology", dest="ontology_enabled", choices=["on", "off"], help="Ontology question planning")
+    p.add_argument("--reuse-evidence", help="Reuse evidence.json from an earlier run (for A/B comparisons)")
     p.add_argument("--genie-model")
     p.add_argument("--genie-profile", help="Profile for a separate workspace that serves the Genie Code model")
     p.add_argument("--genie-bin", default="genie")
@@ -39,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     _common(doc_p)
     a = ap.parse_args(argv)
 
-    inputs = {k: v for k, v in vars(a).items() if k not in ("cmd", "no_publish")}
+    inputs = {k: v for k, v in vars(a).items() if k not in ("cmd", "no_publish", "reuse_evidence")}
     s = config.load(inputs)
 
     if a.cmd == "doctor":
@@ -49,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Genie Code: {'OK, ' + route.model + ' via ' + route.label if route else 'UNAVAILABLE'}")
         return 0 if route else 1
 
-    result = pipeline.run(s, publish_to_github=not a.no_publish)
+    result = pipeline.run(s, publish_to_github=not a.no_publish, reuse_evidence=a.reuse_evidence)
     print(result.body)
     if result.failed:
         log(f"Failing: findings at or above '{s.fail_on}'")

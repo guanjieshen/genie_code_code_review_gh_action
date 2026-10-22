@@ -28,6 +28,10 @@ inputs:
     description: SQL warehouse for metadata queries. Defaults to the first serverless warehouse the reviewer can use.
     required: false
     default: ""
+  analysis-depth:
+    description: "`rapid` (default): exact checks plus one compact Genie Code review. `detailed`: full evidence and ontology questions to Genie One (more time and tokens)."
+    required: false
+    default: ""
   semantic:
     description: Semantic checks backend. `genie-one` or `off`.
     required: false
@@ -227,6 +231,7 @@ runs:
         BUNDLE_DIR: ${{ inputs.bundle-dir }}
         WAREHOUSE: ${{ inputs.warehouse-id }}
         SEMANTIC: ${{ inputs.semantic }}
+        DEPTH: ${{ inputs.analysis-depth }}
         FAIL_ON: ${{ inputs.fail-on }}
         FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
         GENIE_MODEL: ${{ inputs.genie-model }}
@@ -242,6 +247,7 @@ runs:
         [[ -n "$TARGET" ]] && args+=(--target "$TARGET")
         [[ -n "$WAREHOUSE" ]] && args+=(--warehouse-id "$WAREHOUSE")
         [[ -n "$SEMANTIC" ]] && args+=(--semantic "$SEMANTIC")
+        [[ -n "$DEPTH" ]] && args+=(--depth "$DEPTH")
         [[ -n "$FAIL_ON" ]] && args+=(--fail-on "$FAIL_ON")
         [[ -n "$FAIL_ON_ERROR" ]] && args+=(--fail-on-error "$FAIL_ON_ERROR")
         [[ -n "$GENIE_MODEL" ]] && args+=(--genie-model "$GENIE_MODEL")

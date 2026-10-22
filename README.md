@@ -22,9 +22,9 @@ The action only reports problems that need a fact from the workspace. It stays s
 | Review area | Example findings | Checks |
 |---|---|---|
 | Data contracts & compatibility | Missing table or column, type mismatch in a join, write changes an existing table's schema | `contract.unknown-object`, `contract.column-mismatch`, `contract.type-mismatch`, `contract.write-schema` |
-| Lineage, relationships & ontology | A removed column breaks downstream tables, views, jobs, or dashboards | `lineage.downstream-break` |
-| Business semantics & metrics | A metric differs from its governed definition; code reads a deprecated dataset | `semantic.metric-definition-drift`, `semantic.non-authoritative-source` (Genie) |
-| Security & governance | Classified (for example PII) columns copied into an unclassified table | `governance.tagged-data-flow` (Genie) |
+| Lineage, relationships & ontology | A removed column breaks downstream tables, views, jobs, or dashboards; a join violates a documented identifier relationship | `lineage.downstream-break`, `ontology.identifier-relationship` (Genie One + Genie Code) |
+| Business semantics & metrics | A metric differs from its governed definition; code reads a deprecated dataset | `semantic.metric-definition-drift`, `semantic.non-authoritative-source` (Genie Code) |
+| Security & governance | Classified (for example PII) columns copied into an unclassified table | `governance.tagged-data-flow` (Genie Code) |
 | Deployment & operations | Unsupported Databricks Runtime; deploy overwrites changes made outside the bundle | `deploy.runtime-support`, `deploy.drift` |
 | Data correctness & quality | Reserved for correctness checks | |
 
@@ -97,7 +97,7 @@ jobs:
 ```
 
 > 💡 **Tip**
-> If your organization requires actions pinned to a commit SHA, use `guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.2.0`. All actions used inside this action are pinned by SHA.
+> If your organization requires actions pinned to a commit SHA, use `guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.3.0`. All actions used inside this action are pinned by SHA.
 
 ### 4. Open a pull request
 
@@ -116,7 +116,8 @@ The review appears as a comment on the pull request. Start in advisory mode (the
 | `bundle-target` | bundle default | Bundle target to review against |
 | `bundle-dir` | `.` | Folder containing `databricks.yml`, for monorepos. Config paths are relative to it |
 | `warehouse-id` | auto | SQL warehouse for metadata queries |
-| `semantic` | `genie-one` | `genie-one` or `off` |
+| `analysis-depth` | `rapid` | `rapid`: exact checks plus one compact Genie Code review. `detailed`: full evidence plus ontology questions to Genie One (slower, more tokens) |
+| `semantic` | `genie-one` | `genie-one` or `off` (turns off semantic checks and ontology questions) |
 | `fail-on` | `none` | Fail the check on any `blocker` (merge-impact policy), or at a severity: `critical`, `high`, `medium` |
 | `fail-on-error` | `false` | Fail the check when the review cannot run (sign-in or bundle errors). By default it explains the problem and passes |
 | `genie-model` | Genie default | Override the Genie Code model |
@@ -147,6 +148,18 @@ instructions_file: .genie-review/instructions.md
 ```
 
 `instructions.md` is plain text the reviewer reads as team context, for example "the `main` catalog is production" or "finance owns all `gold_*` tables". It adds context; it cannot change the review rules or output format. See [docs/configuration.md](docs/configuration.md).
+
+## Ontology validation
+
+Some business meaning lives outside table metadata: what a metric means, which identifier is canonical for an entity, and how two identifier systems relate. Lakehouse Review decides which of those questions a pull request raises, from what it touches:
+
+| The PR... | Question |
+|---|---|
+| Joins two identifiers of the same entity (for example `customer_id` and `cust_id`) | What is the canonical identifier, and how do these relate? |
+| Writes a metric-like column (revenue, LTV, margin) | What is the governed definition, and which asset is authoritative? |
+| Reads a metric-like table with no certified or deprecated signal | Is this the authoritative source? |
+
+Questions that Unity Catalog already answers (a metric view that defines the measure, a certified or deprecated tag) are not sent anywhere. In `detailed` mode, the rest go to **Genie One**, up to a budget (default 4). Answers become evidence with their citations. An answer counts as authoritative only when it cites a governed source (a Unity Catalog Page, a metric view, or a certified dataset); an uncited answer is a hypothesis and cannot create a high-confidence finding on its own. The **Analysis coverage** section shows how many questions were planned, answered by Unity Catalog, asked, answered authoritatively, and left unresolved.
 
 ## Model availability
 

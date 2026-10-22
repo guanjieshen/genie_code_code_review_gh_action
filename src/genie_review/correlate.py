@@ -77,6 +77,8 @@ def root_cause_key(f: Finding, facts: dict[str, Any]) -> str:
         written = sorted(o for o in tables if facts.get(f"ev:uc:{o[3:]}:metadata", {}).get("exists"))
         if written:
             return f"schema-change:{written[0]}:{f.file}"
+    if f.check in ("ontology.identifier-relationship", "contract.type-mismatch"):
+        return f"identifier:{f.file}:{f.line}"
     if f.check.startswith("semantic."):
         dep = sorted(o for o in tables if _deprecated(facts, o))
         if dep:
@@ -153,8 +155,10 @@ def _reason(g: Group) -> str:
 
 
 def _member_order(f: Finding) -> tuple:
-    # In a group, show the most severe, best-evidenced check first; prefer exact checks on ties.
-    return (SEVERITIES.index(f.severity), CONFIDENCE.index(f.confidence), 0 if f.source == "deterministic" else 1, f.check)
+    # In a group, show the business explanation (ontology) first, then the most severe, best-evidenced check;
+    # prefer exact checks on ties.
+    return (0 if f.check == "ontology.identifier-relationship" and f.confidence != "low" else 1,
+            SEVERITIES.index(f.severity), CONFIDENCE.index(f.confidence), 0 if f.source == "deterministic" else 1, f.check)
 
 
 def correlate(findings: list[Finding], facts: dict[str, Any], group_related: bool = True) -> list[Group]:

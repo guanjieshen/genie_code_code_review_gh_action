@@ -39,6 +39,12 @@ merge_policy:
   block_min_confidence: confirmed
   block_categories: [contracts, lineage, deployment]
 
+analysis_depth: rapid              # rapid | detailed
+
+ontology:
+  enabled: true                    # plan ontology questions (Genie One is asked only in detailed mode)
+  max_questions: 4                 # Genie One budget per PR
+
 genie:
   model: ""                        # leave empty for Genie Code's default
   on_model_unavailable: deterministic
@@ -52,6 +58,8 @@ instructions_file: .genie-review/instructions.md
 | `fail_on` | `none` | `blocker` fails on any blocker; a severity fails at that severity or above |
 | `semantic` | `genie-one` | `genie-one` or `off` |
 | `max_findings` | `15` | Maximum issues in the comment |
+| `analysis_depth` | `rapid` | `rapid` or `detailed` |
+| `ontology.enabled` / `ontology.max_questions` | `true` / `4` | Ontology question planning and Genie One budget |
 | `report.*` | see above | What the comment shows. `review.json` always keeps every finding |
 | `merge_policy.*` | see above | Which findings are blockers. Blockers only fail the check when `fail_on: blocker` |
 | `checks.disable` | `[]` | Check ids to turn off |

@@ -24,6 +24,7 @@ RULE_CATEGORY = {
     "contract.type-mismatch": "contracts",
     "contract.write-schema": "contracts",
     "lineage.downstream-break": "lineage",
+    "ontology.identifier-relationship": "lineage",
     "semantic.metric-definition-drift": "semantics",
     "semantic.non-authoritative-source": "semantics",
     "governance.tagged-data-flow": "governance",
@@ -78,6 +79,13 @@ def _fact_kinds(f: Finding, facts: dict[str, Any]) -> set[str]:
     for e in f.evidence:
         if e.startswith("genie_one:"):
             kinds.add("genie_one")
+        elif e.startswith("ev:genie_one:"):
+            g1 = facts.get(e) or {}
+            if g1.get("status") == "answered":
+                kinds.add("genie_one")
+                kinds.add("genie_one_authoritative" if g1.get("authoritative") else "genie_one_hypothesis")
+                if g1.get("conflicting"):
+                    kinds.add("genie_one_conflict")
         elif e.endswith(":metric_view"):
             kinds.add("metric_view")
         elif e.endswith(":tags"):
@@ -114,8 +122,16 @@ def assess_confidence(f: Finding, facts: dict[str, Any]) -> str:
             return "high"  # types verified; the effect on rows depends on the data
         return "confirmed" if kinds & {"metadata", "deployed_state", "workspace", "column_lineage"} else "high"
     # Genie-derived: confidence depends on what it is anchored to
-    if f.check.startswith("semantic."):
-        level = "high" if kinds & {"metric_view", "governed_tag"} else "medium"
+    if f.check == "ontology.identifier-relationship":
+        # needs an authoritative business definition; an unsourced answer stays a hypothesis
+        if "genie_one_authoritative" not in kinds:
+            level = "low"
+        else:
+            level = "high" if "metadata" in kinds else "medium"
+        if "genie_one_conflict" in kinds:
+            level = "medium" if level == "high" else level
+    elif f.check.startswith("semantic."):
+        level = "high" if kinds & {"metric_view", "governed_tag", "genie_one_authoritative"} else "medium"
     elif f.check == "governance.tagged-data-flow":
         level = "medium"  # tags show classification; effective permissions and masks are not inspected
     else:
@@ -173,7 +189,7 @@ def _apply_wording(f: Finding, facts: dict[str, Any]) -> None:
         f.suggestion = wording.DEFAULT_RECOMMENDATION.get(f.check, "")
     if f.impact and wording.overlaps(f.explanation, f.impact):
         f.impact = ""
-    anchored = bool(_fact_kinds(f, facts) & {"metric_view", "governed_tag"})
+    anchored = bool(_fact_kinds(f, facts) & {"metric_view", "governed_tag", "genie_one_authoritative"})
     f.validation = f.validation or wording.validation_note(f.check, f.confidence, f.params, anchored)
 
 

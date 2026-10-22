@@ -40,6 +40,11 @@ CATALOG: dict[str, Check] = {c.id: c for c in [
           "The deployed job differs from the bundle on the base branch (someone edited it in the UI); deploying this PR will overwrite those changes."),
     Check("deploy.runtime-support", "core", "Runtime not offered by the workspace",
           "A cluster spec uses a Databricks Runtime version the target workspace does not offer."),
+    Check("ontology.identifier-relationship", "semantic", "Join violates a documented identifier relationship",
+          "Two identifiers of the same business entity are joined or mapped in a way the documented business definition does not allow "
+          "(for example joining two identifier systems directly when the definition requires a mapping or a specific conversion). "
+          "Report it only when an authoritative definition (an `ev:genie_one:` fact with authoritative=true) supports it, and "
+          "explain the business relationship that is violated, not just the data types."),
     Check("semantic.metric-definition-drift", "semantic", "Metric computed differently from its governed definition",
           "The code computes a governed metric (from a metric view, certified table, or glossary) with different logic or filters."),
     Check("semantic.non-authoritative-source", "semantic", "Reads a deprecated or non-authoritative source",
@@ -86,6 +91,9 @@ def plan(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list[PlanItem
             add("semantic.non-authoritative-source", t, "source is marked deprecated")
     if any(r.joins for r in impact.refs.values()):
         add("contract.type-mismatch", "joins", "code joins tables on columns")
+    for k, v in ev.facts.items():
+        if k.startswith("ev:genie_one:") and v.get("intent") == "identifier_relationship" and v.get("status") == "answered":
+            add("ontology.identifier-relationship", v["concept"], "Genie One returned a definition for this identifier")
     for t in g.tables_with("writes"):
         n = g.nodes[f"uc:{t}"]
         if n.get("change") == "schema_changed":
@@ -237,7 +245,8 @@ def impact_repo(impact: ImpactResult):
     return impact.repo  # set by the pipeline
 
 
-GENIE_CHECKS = {"semantic.metric-definition-drift", "semantic.non-authoritative-source", "governance.tagged-data-flow"}
+GENIE_CHECKS = {"semantic.metric-definition-drift", "semantic.non-authoritative-source", "governance.tagged-data-flow",
+                "ontology.identifier-relationship"}
 
 
 def coverage(plan_items: list[PlanItem], findings: list[Finding], enabled: set[str], ev: Evidence,
