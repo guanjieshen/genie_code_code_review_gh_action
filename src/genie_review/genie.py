@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,7 +51,15 @@ def _client(profile: str) -> WorkspaceClient:
 
 
 def _token(profile: str) -> str:
-    return json.loads(sh(["databricks", "auth", "token", "-p", profile, "-o", "json"]))["access_token"]
+    from .token import access_token
+    return access_token(profile)
+
+
+def _genie_env(home: Path) -> dict[str, str]:
+    """Environment for Genie Code: its home, plus a PYTHONPATH that can import this package for the token helper."""
+    src = str(Path(__file__).resolve().parents[1])
+    path = os.environ.get("PYTHONPATH", "")
+    return {**os.environ, "GENIE_HOME": str(home), "PYTHONPATH": f"{src}{os.pathsep}{path}" if path else src}
 
 
 def write_home(home: Path, route: Route, genie_one_host: str | None) -> None:
@@ -67,8 +76,9 @@ def write_home(home: Path, route: Route, genie_one_host: str | None) -> None:
         'wire_api = "responses"',
         "",
         "[model_providers.databricks.auth]",
-        'command = "databricks"',
-        f'args = ["auth", "token", "--profile", "{route.profile}", "--timeout", "15s", "--output", "json"]',
+        # `databricks auth token` only supports user logins; this helper also handles service principals and OIDC
+        f"command = {json.dumps(sys.executable)}",
+        f'args = ["-m", "genie_review.token", "--profile", "{route.profile}"]',
         "timeout_ms = 60000",
         "refresh_interval_ms = 900000",
         "",
@@ -121,7 +131,7 @@ def probe(genie_bin: str, route: Route) -> tuple[bool, str]:
         write_home(home, route, None)
         try:
             r = subprocess.run([genie_bin, "exec", "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "Reply with exactly: OK"],
-                               cwd=tmp, env={**os.environ, "GENIE_HOME": str(home)}, capture_output=True, text=True,
+                               cwd=tmp, env=_genie_env(home), capture_output=True, text=True,
                                timeout=180, stdin=subprocess.DEVNULL)
         except subprocess.TimeoutExpired:
             return False, "timed out"
@@ -161,7 +171,7 @@ def run_review(s: Settings, route: Route, prompt: str, schema_path: Path, use_ge
         write_home(home, route, _client(s.profile).config.host.rstrip("/") if use_genie_one else None)
         tree = sanitized_worktree(s.repo, s.base_ref, tmp_p / "tree", s.bundle_dir)
         out_file = tmp_p / "out.json"
-        env = {**os.environ, "GENIE_HOME": str(home)}
+        env = _genie_env(home)
         if use_genie_one:
             env["GENIE_ONE_TOKEN"] = _token(s.profile)
         try:

@@ -93,7 +93,7 @@ jobs:
 ```
 
 > 💡 **Tip**
-> If your organization requires actions pinned to a commit SHA, use `guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.1.5`. All actions used inside this action are pinned by SHA.
+> If your organization requires actions pinned to a commit SHA, use `guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.1.6`. All actions used inside this action are pinned by SHA.
 
 ### 4. Open a pull request
 
