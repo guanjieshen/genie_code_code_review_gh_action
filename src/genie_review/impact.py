@@ -44,7 +44,9 @@ def _model(tree: Path, bundle: dict[str, Any]) -> tuple[TreeModel, dict[str, Cod
         executes = executed_files(tree, e.file)
         refs = file_refs(tree / e.file, e.params)
         helper_outputs: list[str] = []
-        for f in sorted(executes - {e.file}):
+        # Output columns come from shared helpers, or from the entry file itself when it writes one table
+        own = {e.file} if e.file.endswith(".py") and len(refs.writes) == 1 else set()
+        for f in sorted((executes - {e.file}) | own):
             if f.endswith(".py"):
                 helper_outputs += select_output_columns((tree / f).read_text(errors="replace"))
         key = f"{e.resource}::{e.file}" if e.kind == "pipeline" else e.resource
