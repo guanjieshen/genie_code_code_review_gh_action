@@ -139,3 +139,27 @@ def test_identifier_questions_skip_missing_tables_and_identical_columns(scenario
     impact.refs["jobs.orders_etl.segment"].joins = [
         {"left": [f"{C}.orders", "order_id"], "right": [f"{C}.order_items", "order_id"], "line": 11}]   # order_items missing
     assert not [q for q in ontology.plan(impact, ev.facts) if q.intent == "identifier_relationship"]
+
+
+def test_tpch_prefixes_and_page_tokens():
+    assert ontology.entity_of("c_custkey") == "customer" and ontology.entity_of("o_custkey") == "customer"
+    assert ontology.entity_of("ps_partkey") == "part" and ontology.entity_of("o_orderkey") == "order"
+    text = "| **Customer** :citation[knowledge_page.7f6ca599-1422-42d7-a67f-2f4126ff875c] | A registered buyer |"
+    cites = ontology.citations_in(text)
+    assert cites == [{"kind": "uc_page", "ref": "knowledge_page.7f6ca599-1422-42d7-a67f-2f4126ff875c", "url": "", "label": "Customer"}]
+
+
+def test_unchanged_joins_are_not_asked_about(scenario):
+    from genie_review.code_refs import CodeRefs
+    impact, ev = scenario
+    join = impact.refs["jobs.orders_etl.segment"].joins[0]
+    impact.base_refs = {"jobs.orders_etl.segment": CodeRefs(joins=[dict(join)])}
+    assert not [q for q in ontology.plan(impact, ev.facts) if q.intent.endswith("_relationship")]
+
+
+def test_schema_pages_count_and_incidental_wording_is_not_a_disclaimer():
+    cites = [{"kind": "uc_page", "ref": "p", "label": "TPC-H Sample Schema"}, {"kind": "uc_object", "ref": "samples.tpch.orders"}]
+    text = "The page lists customer -> orders via c_custkey = o_custkey. **Composite keys:** none apply here."
+    assert ontology.assess(text, cites, {}, "customer orders", ["uc:samples.tpch.customer.c_custkey"])[0] is True
+    assert ontology.assess("No glossary page covers this; none of these pages apply.", cites, {}, "customer orders",
+                           ["uc:samples.tpch.customer.c_custkey"])[0] is False

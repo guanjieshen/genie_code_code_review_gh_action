@@ -30,7 +30,8 @@ from .util import log
 
 ID_COLUMN = re.compile(r"^(?P<stem>[a-z][a-z0-9]*?)_?(id|key|number|no|code)$", re.I)
 MEASURE = re.compile(r"(revenue|sales|margin|profit|ltv|churn|arr|mrr|gmv|bookings)", re.I)   # business metrics
-INTENT_RANK = {"identifier_relationship": 0, "metric_definition": 1, "authoritative_source": 2}
+INTENT_RANK = {"identifier_relationship": 0, "join_relationship": 0, "metric_definition": 1, "authoritative_source": 2}
+TABLE_PREFIX = re.compile(r"^[a-z]{1,2}_(?=[a-z]+(id|key|number|no|code)$)", re.I)   # TPC-H style: c_custkey, ps_partkey
 ALIASES = {"cust": "customer", "acct": "account", "prod": "product", "emp": "employee", "ord": "order", "sku": "product"}
 
 
@@ -42,6 +43,7 @@ class Question:
     text: str
     objects: list[str]          # uc:<fqn>[.<col>] the question is about
     location: tuple[str, int] = ("", 0)
+    priority: int = 2           # 0 = could change the outcome most (suspicious join), larger = less likely
     status: str = "planned"     # planned | answered_by_uc | asked | skipped_budget
     uc_answer: str = ""         # evidence id that already answers it
 
@@ -66,8 +68,12 @@ class Answer:
 # ------------------------------------------------------------------ planning
 
 
+def strip_prefix(column: str) -> str:
+    return TABLE_PREFIX.sub("", column)
+
+
 def entity_of(column: str) -> str | None:
-    m = ID_COLUMN.match(column)
+    m = ID_COLUMN.match(strip_prefix(column))
     if not m:
         return None
     stem = m.group("stem").lower()
@@ -86,34 +92,52 @@ def plan(impact, facts: dict[str, Any], budget: int = 4) -> list[Question]:
     """Questions whose answers could change the review, most valuable first."""
     qs: dict[str, Question] = {}
 
-    # 1. identifier relationships: joins on identifier columns
+    # 1. relationships: one question per pair of tables the PR newly joins (or joins differently)
+    base_joins = {(tuple(j["left"]), tuple(j["right"])) for r in getattr(impact, "base_refs", {}).values() for j in r.joins}
+    pairs: dict[tuple[str, str], list[dict]] = {}
     for key, refs in impact.refs.items():
         entry = impact.head.entries[key]["entry"]
         for j in refs.joins:
-            (lt, lc), (rt, rc) = j["left"], j["right"]
-            le, re_ = entity_of(lc), entity_of(rc)
-            if not le or not re_ or le != re_:
-                continue
-            lmeta, rmeta = facts.get(f"ev:uc:{lt}:metadata") or {}, facts.get(f"ev:uc:{rt}:metadata") or {}
-            if not (lmeta.get("exists") and rmeta.get("exists")):
-                continue  # a missing table is already a finding; the relationship cannot be checked
-            ltype = {c["name"].lower(): c["type"] for c in lmeta.get("columns", [])}.get(lc.lower())
-            rtype = {c["name"].lower(): c["type"] for c in rmeta.get("columns", [])}.get(rc.lower())
-            if lc.lower() == rc.lower() and ltype and ltype == rtype:
-                continue  # same name, same type: nothing for the ontology to resolve
-            concept = le
-            qid = _qid("identifier_relationship", concept)
-            q = qs.get(qid)
-            objs = [f"uc:{lt}.{lc}", f"uc:{rt}.{rc}"]
-            if q:
-                q.objects = sorted(set(q.objects) | set(objs))
-                continue
-            schema = ".".join(lt.split(".")[:2])
-            qs[qid] = Question(qid, "identifier_relationship", concept,
-                               f"In `{schema}`, what is the canonical identifier for a {concept}, and how do "
-                               f"`{_short(lt)}.{lc}` and `{_short(rt)}.{rc}` relate? Are they the same identifier system, "
-                               "and is a mapping or specific join rule required? Cite the business definition you use.",
-                               sorted(objs), (entry, j["line"]))
+            if (tuple(j["left"]), tuple(j["right"])) in base_joins:
+                continue  # unchanged join: the PR did not introduce it
+            pair = tuple(sorted((j["left"][0], j["right"][0])))
+            pairs.setdefault(pair, []).append({**j, "entry": entry})
+    for (ta, tb), joins in pairs.items():
+        metas = [facts.get(f"ev:uc:{t}:metadata") or {} for t in (ta, tb)]
+        if not all(m.get("exists") for m in metas):
+            continue  # a missing table is already a finding; the relationship cannot be checked
+        j = joins[0]
+        (lt, lc), (rt, rc) = j["left"], j["right"]
+        le, re_ = entity_of(lc), entity_of(rc)
+        cols = "; ".join(f"`{_short(x['left'][0])}.{x['left'][1]} = {_short(x['right'][0])}.{x['right'][1]}`" for x in joins)
+        schema = ".".join(lt.split(".")[:2])
+        types = [{c["name"].lower(): c["type"] for c in m.get("columns", [])} for m in metas]
+        lt_type = (types[0] if ta == lt else types[1]).get(lc.lower())
+        rt_type = (types[0] if ta == rt else types[1]).get(rc.lower())
+        if le and le == re_ and (strip_prefix(lc).lower() != strip_prefix(rc).lower() or (lt_type and rt_type and lt_type != rt_type)):
+            intent, concept = "identifier_relationship", le
+            text = (f"In `{schema}`, what is the canonical identifier for a {le}, and how do `{_short(lt)}.{lc}` and "
+                    f"`{_short(rt)}.{rc}` relate? Are they the same identifier system, and is a mapping or specific join "
+                    "rule required? Cite the business definition you use.")
+        else:
+            intent, concept = "join_relationship", f"{_short(ta)} {_short(tb)}"
+            text = (f"In `{schema}`, what is the documented relationship between `{_short(ta)}` and `{_short(tb)}`, and "
+                    f"which columns must be used to join them (including composite keys)? This change joins them on {cols}. "
+                    "Cite the business or schema definition you use.")
+        # how likely is the answer to change the review?
+        # partial composite key: the two tables share several key entities, but the join uses only some of them
+        shared = set.intersection(*[{entity_of(c["name"]) for c in m.get("columns", []) if entity_of(c["name"])} for m in metas])
+        used = {entity_of(x["left"][1]) for x in joins} | {entity_of(x["right"][1]) for x in joins}
+        partial_key = len(shared) >= 2 and bool(shared - used)
+        different_entities = bool(le and re_ and le != re_)
+        priority = 0 if (intent == "identifier_relationship" or different_entities or partial_key) else 2
+        qid = _qid(intent, concept)
+        objs = sorted({f"uc:{x['left'][0]}.{x['left'][1]}" for x in joins} | {f"uc:{x['right'][0]}.{x['right'][1]}" for x in joins})
+        if qid in qs:
+            qs[qid].objects = sorted(set(qs[qid].objects) | set(objs))
+            qs[qid].priority = min(qs[qid].priority, priority)
+            continue
+        qs[qid] = Question(qid, intent, concept, text, objs, (j["entry"], j["line"]), priority)
 
     # 2. metric definitions: measure-like outputs of tables the PR writes
     for e in impact.head.entries.values():
@@ -130,7 +154,7 @@ def plan(impact, facts: dict[str, Any], budget: int = 4) -> list[Question]:
                 qs[qid] = Question(qid, "metric_definition", concept,
                                    f"In `{schema}`, what is the governed business definition of {concept} "
                                    "(filters, exclusions, and grain), and which asset is authoritative for it? Cite the definition.",
-                                   [f"uc:{t}.{c}"], (e["entry"], e["writes"].get(t, 0)))
+                                   [f"uc:{t}.{c}"], (e["entry"], e["writes"].get(t, 0)), 1)
 
     # 3. authoritative source: business tables read without a certified/deprecated signal
     written = set(impact.graph.tables_with("writes"))
@@ -142,9 +166,9 @@ def plan(impact, facts: dict[str, Any], budget: int = 4) -> list[Question]:
         if qid not in qs:
             qs[qid] = Question(qid, "authoritative_source", concept,
                                f"Is `{t}` the authoritative source for {concept}? If not, which dataset is, and why? Cite the definition.",
-                               [f"uc:{t}"])
+                               [f"uc:{t}"], priority=3)
 
-    ordered = sorted(qs.values(), key=lambda q: (INTENT_RANK[q.intent], q.concept))
+    ordered = sorted(qs.values(), key=lambda q: (q.priority, INTENT_RANK[q.intent], q.concept))
     for q in ordered:
         resolve_with_uc(q, facts)
     asked = 0
@@ -180,6 +204,21 @@ def resolve_with_uc(q: Question, facts: dict[str, Any]) -> None:
 
 
 LINK = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)")
+PAGE_TOKEN = re.compile(r":citation\[knowledge_page\.([0-9a-f-]{8,})\]", re.I)
+BOLD = re.compile(r"\*\*([^*]+)\*\*")
+
+
+def citations_in(text: str) -> list[dict[str, str]]:
+    """All citations in a Genie One answer: Markdown links plus `:citation[knowledge_page.<id>]` tokens.
+
+    Page tokens carry no title, so the label is the nearest bold text earlier on the same line.
+    """
+    out = [classify_citation(l, u) for l, u in LINK.findall(text)]
+    for line in text.splitlines():
+        for m in PAGE_TOKEN.finditer(line):
+            titles = BOLD.findall(line[: m.start()])
+            out.append({"kind": "uc_page", "ref": f"knowledge_page.{m.group(1)}", "url": "", "label": titles[-1] if titles else ""})
+    return out
 
 
 def classify_citation(label: str, url: str) -> dict[str, str]:
@@ -189,19 +228,20 @@ def classify_citation(label: str, url: str) -> dict[str, str]:
         return {"kind": "uc_object", "ref": ".".join(m.groups()), "url": url, "label": label}
     if "#embed-query" in url:
         return {"kind": "query", "ref": url.rsplit("#", 1)[1], "url": url, "label": label}
-    if re.search(r"/(pages?|glossary|knowledge)(/|\?|$)", url, re.I):
+    if re.search(r"/(pages?|glossary|knowledge)(/|\?|$)", url, re.I):  # e.g. /one/discover/pages/<id>
         return {"kind": "uc_page", "ref": url, "url": url, "label": label}
     return {"kind": "link", "ref": url, "url": url, "label": label}
 
 
-DISCLAIMER = re.compile(
-    r"(no (curated|governed|documented|authoritative) (business )?definition|"
-    r"none (of them )?appl(y|ies)|(do|does)n['’]?t apply|didn['’]?t use (them|it)|not (relevant|applicable) here|"
-    r"no (glossary|ontology) (page|snippet|entry)|isn['’]?t (a )?(documented|curated))", re.I)
+DISCLAIMER = re.compile(  # the answer says the available definitions do not cover this question
+    r"(no (curated|governed|documented|authoritative|business) (business )?definition|"
+    r"none of (the|these|those|them)( glossary)? (pages?|definitions?)? ?appl(y|ies)|"
+    r"(didn['’]?t|did not) use (them|these|those|it)\b|"
+    r"no (glossary|ontology) (page|snippet|entry) (covers|for|about))", re.I)
 
 
 def _tokens(s: str) -> set[str]:
-    words = re.findall(r"[a-z]+", s.lower())
+    words = re.findall(r"[a-z]+", s.lower().replace("-", ""))   # "TPC-H" -> "tpch"
     return {ALIASES.get(w, w).rstrip("s") for w in words if len(w) > 2}
 
 
@@ -218,7 +258,8 @@ def assess(answer: str, citations: list[dict[str, str]], facts: dict[str, Any], 
         governed = False
     else:
         schemas = {".".join(o[3:].split(".")[:2]) for o in (objects or [])}
-        want = _tokens(concept)
+        # a page is about this question if its title names the concept, or the catalog/schema under review
+        want = _tokens(concept) | {t for sch in schemas for t in _tokens(sch.replace(".", " "))}
         governed = False
         # The API does not return page content, so a page counts only if its title matches the concept AND the
         # same answer ties it to an object in the reviewed schema.
@@ -286,7 +327,7 @@ def _ask_one(q: Question, client: GenieOne | None, facts: dict[str, Any]) -> Ans
         log(f"Genie One question {q.id} failed: {str(e)[:120]}")
         return Answer(q.id, "error", error=str(e)[:200])
     text = ps.get("final_answer") or ""
-    cites = [classify_citation(l, u) for l, u in LINK.findall(text)]
+    cites = citations_in(text)
     auth, conflict = assess(text, cites, facts, q.concept, q.objects)
     status = "answered" if ps.get("status") == "completed" and text.strip() else "no_answer"
     return Answer(q.id, status, text[:3000], cites, [i.get("sql", "") for i in ps.get("query_items") or []],

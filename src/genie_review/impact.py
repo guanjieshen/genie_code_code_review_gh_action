@@ -37,6 +37,7 @@ class ImpactResult:
     changed_files: dict[str, str]
     refs: dict[str, CodeRefs]  # head entry key -> refs (for deterministic checks)
     repo: Path
+    base_refs: dict[str, CodeRefs] = field(default_factory=dict)  # base entry key -> refs (what the PR changed)
 
 
 def _model(tree: Path, bundle: dict[str, Any], bundle_dir: str) -> tuple[TreeModel, dict[str, CodeRefs]]:
@@ -80,9 +81,9 @@ def analyze(repo: Path, base_ref: str, profile: str, target: str | None, bundle_
         try:
             if (base_tree / bundle_dir / "databricks.yml").exists():
                 base_bundle = bdl.resolve(base_tree / bundle_dir, profile, target)
-                base_model, _ = _model(base_tree, base_bundle, bundle_dir)
+                base_model, base_refs = _model(base_tree, base_bundle, bundle_dir)
             else:  # bundle is new in this PR
-                base_bundle, base_model = {}, TreeModel()
+                base_bundle, base_model, base_refs = {}, TreeModel(), {}
         finally:
             sh(["git", "worktree", "remove", "--force", str(base_tree)], cwd=repo, check=False)
     head_bundle = bdl.resolve(repo / bundle_dir, profile, target)
@@ -133,4 +134,4 @@ def analyze(repo: Path, base_ref: str, profile: str, target: str | None, bundle_
         for k, did in ids.items():
             if f"res:{rtype}.{k}" in g.nodes:
                 g.nodes[f"res:{rtype}.{k}"]["deployed_id"] = did
-    return ImpactResult(g, base_model, head_model, base_bundle, head_bundle, files, head_refs, repo)
+    return ImpactResult(g, base_model, head_model, base_bundle, head_bundle, files, head_refs, repo, base_refs)
