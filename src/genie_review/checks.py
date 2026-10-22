@@ -11,6 +11,7 @@ from typing import Any
 
 from .evidence import Evidence
 from .impact import ImpactResult
+from . import wording
 from .models import Finding, PlanItem
 
 
@@ -39,6 +40,11 @@ CATALOG: dict[str, Check] = {c.id: c for c in [
           "The deployed job differs from the bundle on the base branch (someone edited it in the UI); deploying this PR will overwrite those changes."),
     Check("deploy.runtime-support", "core", "Runtime not offered by the workspace",
           "A cluster spec uses a Databricks Runtime version the target workspace does not offer."),
+    Check("ontology.identifier-relationship", "semantic", "Join violates a documented identifier relationship",
+          "Two identifiers of the same business entity are joined or mapped in a way the documented business definition does not allow "
+          "(for example joining two identifier systems directly when the definition requires a mapping or a specific conversion). "
+          "Report it only when an authoritative definition (an `ev:genie_one:` fact with authoritative=true) supports it, and "
+          "explain the business relationship that is violated, not just the data types."),
     Check("semantic.metric-definition-drift", "semantic", "Metric computed differently from its governed definition",
           "The code computes a governed metric (from a metric view, certified table, or glossary) with different logic or filters."),
     Check("semantic.non-authoritative-source", "semantic", "Reads a deprecated or non-authoritative source",
@@ -85,6 +91,9 @@ def plan(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list[PlanItem
             add("semantic.non-authoritative-source", t, "source is marked deprecated")
     if any(r.joins for r in impact.refs.values()):
         add("contract.type-mismatch", "joins", "code joins tables on columns")
+    for k, v in ev.facts.items():
+        if k.startswith("ev:genie_one:") and v.get("intent") == "identifier_relationship" and v.get("status") == "answered":
+            add("ontology.identifier-relationship", v["concept"], "Genie One returned a definition for this identifier")
     for t in g.tables_with("writes"):
         n = g.nodes[f"uc:{t}"]
         if n.get("change") == "schema_changed":
@@ -124,9 +133,11 @@ def deterministic(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list
     g, out = impact.graph, []
     written = set(g.tables_with("writes"))
 
-    def add(check: str, sev: str, file: str, line: int, title: str, expl: str, evidence: list[str], sugg: str = "") -> None:
+    def add(check: str, sev: str, file: str, line: int, params: dict, evidence: list[str]) -> None:
         if check in enabled:
-            out.append(Finding(check, sev, file, line, title, expl, evidence, sugg))
+            w = wording.exact(check, params)
+            out.append(Finding(check, sev, file, line, w["title"], w["description"], evidence, w["recommendation"],
+                               impact=w["impact"], params=params))
 
     renamed: dict[str, dict[str, str]] = {}  # table -> {new_col: old_col} when one removed + one added
     for t in written:
@@ -139,9 +150,7 @@ def deterministic(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list
         meta = ev.facts.get(f"ev:uc:{t}:metadata", {})
         if meta.get("exists") is False and t not in written:
             f, line = _locate(impact, t, "reads")
-            add("contract.unknown-object", "critical", f, line, f"`{_short(t)}` does not exist in the target workspace",
-                f"The code reads `{t}`, which does not exist in the target workspace and is not created by this PR.",
-                [f"ev:uc:{t}:metadata"], "Create the table first, fix the name, or add the task that produces it.")
+            add("contract.unknown-object", "critical", f, line, {"table": t}, [f"ev:uc:{t}:metadata"])
 
     # missing columns
     for key, refs in impact.refs.items():
@@ -153,8 +162,7 @@ def deterministic(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list
             added = {c.lower() for c in (g.nodes.get(f"uc:{t}", {}).get("columns") or {}).get("added", [])}
             for c, line in cols.items():
                 if c.lower() not in live and c.lower() not in added:
-                    add("contract.column-mismatch", "high", entry, line, f"Column `{c}` does not exist on `{_short(t)}`",
-                        f"`{t}` has no column `{c}`. Live columns: {', '.join(sorted(live))}.",
+                    add("contract.column-mismatch", "high", entry, line, {"table": t, "column": c, "live": sorted(live)},
                         [f"ev:uc:{t}:metadata"])
 
     # join type mismatches (uses the old column's type for a column renamed in this PR)
@@ -171,12 +179,8 @@ def deterministic(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list
                 continue
             lf, rf = TYPE_FAMILY.get(ltype.split("(")[0].lower()), TYPE_FAMILY.get(rtype.split("(")[0].lower())
             if lf and rf and lf != rf:
-                add("contract.type-mismatch", "medium", entry, j["line"],
-                    f"Join compares {ltype} `{lc}` with {rtype} `{rc}`",
-                    f"`{_short(lt)}.{lc}` is {ltype} and `{_short(rt)}.{rc}` is {rtype}, so Spark casts one side implicitly. "
-                    "Whether rows are lost depends on the data: values that do not convert become NULL and do not match.",
-                    [f"ev:uc:{lt}:metadata", f"ev:uc:{rt}:metadata"],
-                    "Cast explicitly to a common type, or align the column types at the source.")
+                add("contract.type-mismatch", "medium", entry, j["line"], {"left": [lt, lc, ltype], "right": [rt, rc, rtype]},
+                    [f"ev:uc:{lt}:metadata", f"ev:uc:{rt}:metadata"])
 
     # schema changes and downstream breaks
     for t in written:
@@ -186,35 +190,27 @@ def deterministic(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list
             continue
         removed = n["columns"]["removed"]
         file, line = _schema_change_location(impact, t, n["columns"]["added"] + removed)
-        add("contract.write-schema", "high", file, line, f"Write changes the schema of `{_short(t)}`",
-            f"`{t}` currently has `{'`, `'.join(removed)}`; this PR stops writing it and adds `{'`, `'.join(n['columns']['added']) or 'nothing'}`.",
-            [f"ev:uc:{t}:metadata"], "Plan the migration: keep the old column during a transition, or update consumers in the same change.")
+        add("contract.write-schema", "high", file, line, {"table": t, "removed": removed, "added": n["columns"]["added"]},
+            [f"ev:uc:{t}:metadata"])
         broken = []
         for c in removed:
             broken += ev.facts.get(f"ev:lineage:{t}.{c}:downstream", {}).get("downstream_columns", [])
         if broken:
-            add("lineage.downstream-break", "critical", file, line,
-                f"Removing `{', '.join(removed)}` from `{_short(t)}` breaks {len(broken)} downstream column(s)",
-                f"Column lineage shows these consumers of `{_short(t)}.{', '.join(removed)}`: {', '.join(f'`{_short(b)}`' for b in broken)}.",
-                [f"ev:lineage:{t}.{c}:downstream" for c in removed] + [f"ev:lineage:{t}:downstream"],
-                "Update or migrate the downstream objects before (or with) this change.")
+            add("lineage.downstream-break", "critical", file, line, {"table": t, "removed": removed, "consumers": broken},
+                [f"ev:lineage:{t}.{c}:downstream" for c in removed] + [f"ev:lineage:{t}:downstream"])
 
     # runtime support
     for k, fact in ev.facts.items():
         if k.startswith("ev:workspace:spark_version:") and fact.get("offered_by_workspace") is False:
             sv = k.rsplit(":", 1)[1]
             file, line = _find_in_changed(impact, sv)
-            add("deploy.runtime-support", "high", file, line, f"Runtime `{sv}` is not offered by this workspace",
-                f"The workspace does not offer `{sv}`. Examples it offers: {', '.join(fact.get('examples_offered', []))}.",
-                [k], "Use a supported LTS runtime.")
+            add("deploy.runtime-support", "high", file, line, {"version": sv, "offered": fact.get("examples_offered", [])}, [k])
 
     # drift
     for k, fact in ev.facts.items():
         if k.startswith("ev:job:") and k.endswith(":drift") and fact.get("drift"):
             file, line = _find_in_changed(impact, fact["job_key"] + ":")
-            add("deploy.drift", "medium", file, line, f"Deploy will overwrite UI changes on job `{fact['job_key']}`",
-                f"The deployed job differs from the bundle on the base branch in: {', '.join(fact['drift'])}. Deploying this PR replaces those settings.",
-                [k], "Bring the out-of-band changes into the bundle, or confirm they should be reverted.")
+            add("deploy.drift", "medium", file, line, {"job": fact["job_key"], "fields": sorted(fact["drift"])}, [k])
     return out
 
 
@@ -249,7 +245,8 @@ def impact_repo(impact: ImpactResult):
     return impact.repo  # set by the pipeline
 
 
-GENIE_CHECKS = {"semantic.metric-definition-drift", "semantic.non-authoritative-source", "governance.tagged-data-flow"}
+GENIE_CHECKS = {"semantic.metric-definition-drift", "semantic.non-authoritative-source", "governance.tagged-data-flow",
+                "ontology.identifier-relationship"}
 
 
 def coverage(plan_items: list[PlanItem], findings: list[Finding], enabled: set[str], ev: Evidence,

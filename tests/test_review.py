@@ -33,19 +33,21 @@ def test_all_12_findings_survive_with_their_evidence():
 
 def test_severity_and_category_counts():
     review, md = build()
-    assert "2 critical · 7 high · 3 medium" in md
+    assert "**Issues:** 10 — 2 critical · 5 high · 3 medium (12 supporting checks)" in md
     cats = {}
     for f in review.findings:
         cats[f.category] = cats.get(f.category, 0) + 1
     assert cats == {"lineage": 1, "contracts": 5, "semantics": 3, "deployment": 2, "governance": 1}
-    # the overview counts every finding in the groups shown under a category
+    # headline, overview table, and category sections all count issues (groups)
     rows = dict(re.findall(r"^\| ([^|]+) \| (\d+) \|", md, re.M))
-    assert sum(int(v) for k, v in rows.items() if k in CATEGORIES.values()) == 12
+    assert sum(int(v) for k, v in rows.items() if k in CATEGORIES.values()) == len(review.groups) == 10
+    sections = [int(n) for n in re.findall(r"</b> — (\d+) issues?", md)]
+    assert sum(sections) == 10
 
 
 def test_root_cause_grouping_is_conservative():
     review, md = build()
-    assert "(10 issues from 12 checks)" in md
+    assert "**Issues:** 10" in md and "(12 supporting checks)" in md
     multi = {g.key.split(":")[0]: g.checks for g in review.groups if len(g.findings) > 1}
     assert multi == {"schema-change": ["contract.write-schema", "lineage.downstream-break"],
                      "deprecated-source": ["semantic.metric-definition-drift", "semantic.non-authoritative-source"]}
@@ -90,7 +92,8 @@ def test_critical_alone_is_not_a_blocker():
 def test_genie_attribution_is_kept():
     review, _ = build()
     semantic = [f for f in review.findings if f.category == "semantics"]
-    assert semantic and all(f.source == "genie" and "Genie" in f.detected_by for f in semantic)
+    assert semantic and all(f.source == "genie" and f.detected_by[0] == "Genie Code" for f in semantic)
+    assert not any("Genie One" in f.detected_by for f in review.findings)   # Genie One was never asked in this run
 
 
 def test_model_score_can_only_lower_confidence():
@@ -147,7 +150,7 @@ def test_priority_findings_are_not_repeated_in_full():
     review, md = build()
     title = review.priority[0].primary.title
     assert md.count(f"— {title}**") == 1                         # full block once
-    assert "(shown in **Needs attention**)" in md
+    assert "(expanded in **Needs attention**)" in md
 
 
 def test_bundle_dir_is_trimmed_from_display_but_not_links():
@@ -173,10 +176,11 @@ def test_zero_one_many_and_partial():
     assert "**Review status:** No issues found" in md0 and "## Needs attention" not in md0
     one = [load()[0][1]]
     r1, md1 = build(findings=one)
-    assert "**Findings:** 1 critical" in md1 and len(r1.priority) == 1
+    assert "**Issues:** 1 — 1 critical" in md1 and len(r1.priority) == 1
     _, many = build()
     assert many.count("<details><summary><b>") == 5
-    partial = Review("s", [], [], [], coverage=[{"check": "governance.tagged-data-flow", "status": "could not run"}])
+    from genie_review.capabilities import Capability
+    partial = Review("s", [], [], [], capabilities=[Capability("Genie Code review", "Unavailable", "no model", 0)])
     assert status(partial) == "No issues found in the checks that ran"
 
 
@@ -189,7 +193,8 @@ def test_json_output_keeps_legacy_and_new_fields():
                 "description", "impact", "recommendation", "location", "affected_objects", "detected_by",
                 "evidence", "related_findings", "group_id"):
         assert key in f, key
-    assert data["counts"] == {"critical": 2, "high": 7, "medium": 3, "low": 0, "info": 0}
+    assert data["counts"] == {"critical": 2, "high": 5, "medium": 3, "low": 0, "info": 0}          # issues
+    assert data["finding_counts"] == {"critical": 2, "high": 7, "medium": 3, "low": 0, "info": 0}  # checks
     assert len(data["groups"]) == 10
 
 

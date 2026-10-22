@@ -77,6 +77,8 @@ def root_cause_key(f: Finding, facts: dict[str, Any]) -> str:
         written = sorted(o for o in tables if facts.get(f"ev:uc:{o[3:]}:metadata", {}).get("exists"))
         if written:
             return f"schema-change:{written[0]}:{f.file}"
+    if f.check in ("ontology.identifier-relationship", "contract.type-mismatch"):
+        return f"identifier:{f.file}:{f.line}"
     if f.check.startswith("semantic."):
         dep = sorted(o for o in tables if _deprecated(facts, o))
         if dep:
@@ -97,11 +99,43 @@ def _governed(fs: list[Finding], facts: dict[str, Any]) -> bool:
 
 
 def _blast_radius(fs: list[Finding], facts: dict[str, Any]) -> int:
-    n = 0
-    for e in {e for f in fs for e in f.evidence if e.startswith("ev:lineage:")}:
+    """Distinct downstream objects that actually depend on what changed.
+
+    Column-level lineage is used when the change removes or renames columns; table-level lineage only
+    when no column-level evidence exists. The two scopes are never added together.
+    """
+    col = {".".join(c.split(".")[:3]) for f in fs for e in f.evidence
+           if e.startswith("ev:lineage:") and _is_column_ev(e) for c in (facts.get(e) or {}).get("downstream_columns") or []}
+    if col:
+        return len(col)
+    tables = {d.get("name") or f"{d.get('kind')}:{d.get('job_id') or d.get('notebook_id')}" for f in fs for e in f.evidence
+              if e.startswith("ev:lineage:") and not _is_column_ev(e) for d in (facts.get(e) or {}).get("downstream") or []}
+    return len(tables)
+
+
+def _is_column_ev(e: str) -> bool:
+    return e[len("ev:lineage:"):].rsplit(":", 1)[0].count(".") == 3
+
+
+def lineage_scope(fs: list[Finding], facts: dict[str, Any]) -> str:
+    """Plain description of the lineage behind an issue, with each scope labelled."""
+    parts = []
+    for e in sorted({e for f in fs for e in f.evidence if e.startswith("ev:lineage:")}):
         fact = facts.get(e) or {}
-        n += len(fact.get("downstream_columns") or []) + len(fact.get("downstream") or [])
-    return n
+        name = e[len("ev:lineage:"):].rsplit(":", 1)[0]
+        if _is_column_ev(e):
+            n = len(fact.get("downstream_columns") or [])
+            parts.append(f"column `{'.'.join(name.split('.')[2:])}`: {n} downstream column(s)")
+        else:
+            d = fact.get("downstream") or []
+            kinds: dict[str, int] = {}
+            for x in d:
+                k = "job" if x.get("kind") == "JOB" else "notebook" if x.get("kind") == "NOTEBOOK" else "table/view"
+                kinds[k] = kinds.get(k, 0) + 1
+            breakdown = ", ".join(f"{v} {k if v == 1 else k.replace('table/view', 'tables/views') + ('s' if k != 'table/view' else '')}"
+                                  for k, v in sorted(kinds.items()))
+            parts.append(f"table `{name.split('.')[-1]}`: {len(d)} downstream object(s) ({breakdown}), not all of which read the changed column")
+    return "; ".join(parts)
 
 
 def _sort_key(g: Group) -> tuple:
@@ -116,13 +150,15 @@ def _reason(g: Group) -> str:
     if g.governed:
         bits.append("governed data product")
     if g.blast_radius:
-        bits.append(f"{g.blast_radius} downstream object(s)")
+        bits.append(f"{g.blast_radius} dependent downstream object(s)")
     return ", ".join(bits)
 
 
 def _member_order(f: Finding) -> tuple:
-    # In a group, show the most severe, best-evidenced check first; prefer exact checks on ties.
-    return (SEVERITIES.index(f.severity), CONFIDENCE.index(f.confidence), 0 if f.source == "deterministic" else 1, f.check)
+    # In a group, show the business explanation (ontology) first, then the most severe, best-evidenced check;
+    # prefer exact checks on ties.
+    return (0 if f.check == "ontology.identifier-relationship" and f.confidence != "low" else 1,
+            SEVERITIES.index(f.severity), CONFIDENCE.index(f.confidence), 0 if f.source == "deterministic" else 1, f.check)
 
 
 def correlate(findings: list[Finding], facts: dict[str, Any], group_related: bool = True) -> list[Group]:

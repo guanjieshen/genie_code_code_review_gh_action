@@ -6,6 +6,7 @@ import json
 from dataclasses import fields
 from pathlib import Path
 
+from genie_review import capabilities
 from genie_review.correlate import correlate, needs_attention
 from genie_review.models import Finding
 from genie_review.normalize import Policy, normalize, visible
@@ -36,8 +37,12 @@ def build(findings=None, facts=None, summary=None, group_related=True, max_prior
     normalize(findings, facts, Policy())
     shown = [f for f in findings if visible(f, CATEGORIES, "low", False, False)]
     groups = correlate(shown, facts, group_related)
+    graph = json.loads((FIXTURE / "impact.json").read_text())
+    caps = capabilities.build(graph, facts, findings, [], "ran" if findings else "not needed",
+                              {"status": "Not needed", "detail": "Unity Catalog evidence answered the semantic checks"})
     review = Review(summary, groups, needs_attention(groups, max_priority, "high"), findings,
-                    hidden=len(findings) - len(shown), route_note="Reviewer: Genie Code `gpt-5.6-sol` via target workspace.")
+                    hidden=len(findings) - len(shown), capabilities=caps, facts=facts,
+                    route_note="AI review engine: Genie Code `gpt-5.6-sol` via target workspace. Genie One: not called.")
     ctx = ctx or LinkContext("https://github.com", "acme/data-platform", "0123abc", ".")
     return review, markdown(review, ctx)
 

@@ -1,6 +1,8 @@
 """Rendering: one normalized review -> GitHub Markdown and structured JSON.
 
 Pure functions. The same review always renders to the same Markdown (no timestamps, stable order).
+Counting rule: the report counts **issues** (correlated groups). Supporting checks are shown as a
+secondary number. Every count comes from `Review.groups`.
 """
 
 from __future__ import annotations
@@ -8,7 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .correlate import Group
+from .capabilities import Capability
+from .correlate import Group, lineage_scope
 from .models import CATEGORIES, SEVERITIES, Finding
 
 MARKER = "<!-- genie-data-review -->"
@@ -20,6 +23,7 @@ STATUS = {
     "informational": "No action needed",
 }
 CONFIDENCE_LABEL = {"confirmed": "Confirmed", "high": "High confidence", "medium": "Needs validation", "low": "Low confidence"}
+ACTIONABLE = ("blocker", "action_required")
 
 
 @dataclass
@@ -48,10 +52,12 @@ class Review:
 
     summary: str
     groups: list[Group]                 # visible issues, already ordered
-    priority: list[Group]               # subset shown under "Needs attention"
+    priority: list[Group]               # subset expanded under "Needs attention"
     findings: list[Finding]             # every finding, including hidden ones
     hidden: int = 0                     # findings suppressed from the comment (low confidence, filters)
-    coverage: list[dict[str, Any]] = field(default_factory=list)
+    coverage: list[dict[str, Any]] = field(default_factory=list)   # per-rule status (JSON only)
+    capabilities: list[Capability] = field(default_factory=list)
+    facts: dict[str, Any] = field(default_factory=dict)
     access_md: str = ""
     access_count: int = 0
     route_note: str = ""
@@ -70,62 +76,70 @@ def _cap(s: str) -> str:
     return s[:1].upper() + s[1:]
 
 
-def _counts(findings: list[Finding]) -> str:
-    return " · ".join(f"{n} {s}" for s in SEVERITIES if (n := sum(f.severity == s for f in findings)))
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'s' if n != 1 else ''}"
+
+
+def severity_counts(groups: list[Group]) -> str:
+    return " · ".join(f"{n} {s}" for s in SEVERITIES if (n := sum(g.severity == s for g in groups)))
 
 
 def status(review: Review) -> str:
     if not review.groups:
-        partial = review.access_count or any(r["status"] in ("could not run", "insufficient evidence") for r in review.coverage)
+        partial = review.access_count or any(c.status == "Unavailable" for c in review.capabilities)
         return "No issues found in the checks that ran" if partial else "No issues found"
     top = min((g.merge_impact for g in review.groups), key=["blocker", "action_required", "review_recommended", "informational"].index)
     return STATUS[top]
 
 
-def _short_objects(objs: list[str]) -> str:
-    names = []
-    for o in objs:
-        kind, _, name = o.partition(":")
-        names.append(f"`{name.split('.')[-1] if kind == 'uc' else o}`")
-    return ", ".join(names)
+def _by_category(groups: list[Group]) -> dict[str, list[Group]]:
+    out: dict[str, list[Group]] = {}
+    for g in groups:  # groups are pre-sorted, so first appearance = highest priority
+        out.setdefault(g.category, []).append(g)
+    return out
 
 
 # ------------------------------------------------------------------ finding blocks
 
 
-def finding_block(g: Group, ctx: LinkContext) -> str:
+def finding_block(g: Group, ctx: LinkContext, facts: dict[str, Any]) -> str:
     f = g.primary
     lines = [f"**{ICON[g.severity]} {_cap(g.severity)} — {f.title}**", "", f.explanation]
     if f.impact:
-        lines += ["", f"**Impact:** {f.impact}"]
+        label = "Impact" if g.confidence in ("confirmed", "high") else "Possible impact"
+        lines += ["", f"**{label}:** {f.impact}"]
+    if f.validation:
+        lines += ["", f"**To validate:** {f.validation}"]
     if f.suggestion:
         lines += ["", f"**Recommended fix:** {f.suggestion}"]
     sources = list(dict.fromkeys(src for m in g.findings for src in m.detected_by))
-    meta = [ctx.link(f.file, f.line), " + ".join(sources) or "Code analysis", CONFIDENCE_LABEL[g.confidence]]
-    lines += ["", " · ".join(m for m in meta if m)]
-    others = g.findings[1:]
-    if others:
-        lines += ["", "Also flagged: " + "; ".join(f"{o.title} (`{o.check}`)" for o in others)]
-    lines += ["", evidence_block(g)]
+    lines += ["", " · ".join([ctx.link(f.file, f.line), " + ".join(sources), CONFIDENCE_LABEL[g.confidence]])]
+    lines += ["", evidence_block(g, facts)]
     return "\n".join(lines)
 
 
-def evidence_block(g: Group) -> str:
+def evidence_block(g: Group, facts: dict[str, Any]) -> str:
     rows = ["<details><summary>Technical evidence</summary>", ""]
-    rows.append(f"- Checks: {', '.join(f'`{c}`' for c in g.checks)}")
-    rows.append(f"- Merge impact: {g.merge_impact.replace('_', ' ')} ({g.reason})")
-    objs = sorted({o for f in g.findings for o in f.affected_objects})
+    if len(g.findings) > 1:
+        rows.append("- Supporting checks: " + "; ".join(f"`{m.check}`: {m.title}" for m in g.findings))
+    else:
+        rows.append(f"- Check: `{g.primary.check}`")
+    rows.append(f"- Rating: {g.severity} severity, {g.confidence} confidence, {g.merge_impact.replace('_', ' ')}")
+    scope = lineage_scope(g.findings, facts)
+    if scope:
+        rows.append(f"- Lineage: {scope}")
+    objs = sorted({o for m in g.findings for o in m.affected_objects})
     if objs:
         rows.append(f"- Objects: {', '.join(f'`{o}`' for o in objs)}")
-    ev = sorted({e for f in g.findings for e in f.evidence})
+    ev = sorted({e for m in g.findings for e in m.evidence})
     rows.append("- Evidence: " + ", ".join(f"`{e[:120]}`" for e in ev))
-    rows.append(f"- Finding ids: {', '.join(f'`{f.id}`' for f in g.findings)}")
+    rows.append(f"- Finding ids: {', '.join(f'`{m.id}`' for m in g.findings)}")
     rows += ["", "</details>"]
     return "\n".join(rows)
 
 
-def compact_ref(g: Group) -> str:
-    return f"- {ICON[g.severity]} {g.primary.title} (shown in **Needs attention**)"
+def one_line(g: Group, ctx: LinkContext) -> str:
+    return f"- {ICON[g.severity]} **{_cap(g.severity)}** — {g.primary.title} · {ctx.link(g.primary.file, g.primary.line)}"
 
 
 # ------------------------------------------------------------------ report
@@ -135,66 +149,63 @@ def markdown(review: Review, ctx: LinkContext, max_summary_lines: int = 5) -> st
     out = [MARKER, "# Lakehouse Review", ""]
     summary = "\n".join([l for l in review.summary.strip().splitlines() if l.strip()][:max_summary_lines])
     out += [summary or "No Databricks resources are affected by this pull request.", ""]
-    visible_findings = [f for g in review.groups for f in g.findings]
+    groups = review.groups
+    checks = sum(len(g.findings) for g in groups)
     out.append(f"**Review status:** {status(review)}  ")
-    if visible_findings:
-        line = f"**Findings:** {_counts(visible_findings)}"
-        if len(review.groups) != len(visible_findings):
-            line += f" ({len(review.groups)} issues from {len(visible_findings)} checks)"
+    if groups:
+        line = f"**Issues:** {len(groups)} — {severity_counts(groups)}"
+        if checks != len(groups):
+            line += f" ({checks} supporting checks)"
         out.append(line)
     if review.access_count:
-        out += ["", f"> ⚠️ **Partial review.** The reviewer could not read {review.access_count} thing(s), so some checks were limited. "
-                    "See **Coverage** below for the grants to add."]
+        out += ["", f"> ⚠️ **Partial review.** The reviewer could not read {_plural(review.access_count, 'object or source')}, "
+                    "so some checks were limited. See **Analysis coverage** for the grants to add."]
     out.append("")
 
-    if review.groups:
-        by_cat: dict[str, list[Group]] = {}
-        for g in review.groups:
-            by_cat.setdefault(g.category, []).append(g)
-        cat_order = list(by_cat)  # groups are pre-sorted, so first appearance = highest priority
-        out += ["| Review area | Findings | Priority |", "|---|---:|---|"]
-        for c in cat_order:
-            n = sum(len(g.findings) for g in by_cat[c])
-            top = min((g.severity for g in by_cat[c]), key=SEVERITIES.index)
-            out.append(f"| {CATEGORIES[c]} | {n} | {ICON[top]} {_cap(top)} |")
+    if groups:
+        by_cat = _by_category(groups)
+        out += ["| Review area | Issues | Highest |", "|---|---:|---|"]
+        for c, gs in by_cat.items():
+            top = min((g.severity for g in gs), key=SEVERITIES.index)
+            out.append(f"| {CATEGORIES[c]} | {len(gs)} | {ICON[top]} {_cap(top)} |")
         out.append("")
 
         out += ["## Needs attention", ""]
         if review.priority:
-            for i, g in enumerate(review.priority):
-                if i:
-                    out += ["---", ""]
-                out += [finding_block(g, ctx), ""]
-            rest = [g for g in review.groups if g not in review.priority and g.merge_impact in ("blocker", "action_required")]
+            for g in review.priority:
+                out += [finding_block(g, ctx, review.facts), ""]
+            rest = [g for g in groups if g not in review.priority and g.merge_impact in ACTIONABLE]
             if rest:
-                out += [f"{len(rest)} more issue(s) need action. See the review areas below.", ""]
+                out += [f"**Also needs action ({len(rest)})**", ""]
+                out += [one_line(g, ctx) for g in rest]
+                out.append("")
         else:
-            out += ["Nothing requires action before merging. Review the recommendations below.", ""]
+            out += ["Nothing requires action before merging. See the recommendations below.", ""]
 
         out += ["## Review details", ""]
-        for c in cat_order:
-            gs = by_cat[c]
-            n = sum(len(g.findings) for g in gs)
+        for c, gs in by_cat.items():
             top = min((g.severity for g in gs), key=SEVERITIES.index)
-            out += [f"<details><summary><b>{CATEGORIES[c]}</b> — {n} finding{'s' if n != 1 else ''} · {_cap(top)}</summary>", ""]
+            out += [f"<details><summary><b>{CATEGORIES[c]}</b> — {_plural(len(gs), 'issue')} · {_cap(top)}</summary>", ""]
             for g in gs:
-                out += [compact_ref(g) if g in review.priority else finding_block(g, ctx), ""]
+                out += [f"- {ICON[g.severity]} {g.primary.title} (expanded in **Needs attention**)" if g in review.priority
+                        else finding_block(g, ctx, review.facts), ""]
             out += ["</details>", ""]
 
     out += coverage_section(review)
     if review.hidden:
-        out += [f"<sub>{review.hidden} low-confidence or filtered observation(s) are not shown. They are in the review JSON.</sub>", ""]
+        out += [f"<sub>{review.hidden} low-confidence or filtered observation(s) are not shown. They are in review.json.</sub>", ""]
     out.append(f"<sub>{review.route_note}</sub>")
     return "\n".join(out).rstrip() + "\n"
 
 
 def coverage_section(review: Review) -> list[str]:
-    if not (review.coverage or review.access_md or review.notes):
+    if not (review.capabilities or review.access_md or review.notes):
         return []
-    rows = ["<details><summary>Coverage</summary>", ""]
-    if review.coverage:
-        rows += ["| Check | Result |", "|---|---|"]
-        rows += [f"| `{r['check']}` | {cell(r['status'])} |" for r in review.coverage]
+    rows = ["<details><summary>Analysis coverage</summary>", ""]
+    if review.capabilities:
+        rows += ["| Capability | Status | Scope | Findings |", "|---|---|---|---:|"]
+        rows += [f"| {c.name} | {c.status} | {cell(c.detail)} | {c.findings} |" for c in review.capabilities]
+        rows += ["", "<sub>A finding counts toward every capability it used.</sub>"]
     if review.access_md:
         rows += ["", "**Access the reviewer is missing**", "", review.access_md]
     if review.notes:
@@ -210,10 +221,13 @@ def to_json(review: Review, version: str) -> dict[str, Any]:
         "tool_version": version,
         "status": status(review),
         "summary": review.summary,
-        "counts": {s: sum(f.severity == s for g in review.groups for f in g.findings) for s in SEVERITIES},
+        "issues": len(review.groups),
+        "counts": {s: sum(g.severity == s for g in review.groups) for s in SEVERITIES},               # by issue
+        "finding_counts": {s: sum(f.severity == s for g in review.groups for f in g.findings) for s in SEVERITIES},
         "groups": [g.to_dict() for g in review.groups],
         "priority": [g.id for g in review.priority],
         "findings": [{**f.to_dict(), "visible": f.id in visible_ids} for f in review.findings],
+        "capabilities": [c.to_dict() for c in review.capabilities],
         "coverage": review.coverage,
         "route": review.route_note,
         "notes": review.notes,
@@ -226,4 +240,3 @@ def render_problem(title: str, detail: str, fixes: list[str]) -> str:
     out += [f"{i}. {f}" for i, f in enumerate(fixes, 1)]
     out += ["", "<sub>This does not block the pull request. Set `fail-on-error: true` to make it fail the check.</sub>"]
     return "\n".join(out) + "\n"
-

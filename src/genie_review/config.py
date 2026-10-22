@@ -51,6 +51,10 @@ class Settings:
     include_info: bool = False
     group_related: bool = True
     max_priority: int = 3
+    # ---- analysis depth and ontology
+    depth: str = "rapid"             # rapid | detailed
+    ontology: bool = True            # plan ontology questions (asked only in detailed mode)
+    ontology_budget: int = 4         # Genie One questions per PR in detailed mode
     # ---- merge-impact policy
     block_severities: list[str] = field(default_factory=lambda: ["critical"])
     block_min_confidence: str = "confirmed"
@@ -120,6 +124,9 @@ def load(inputs: dict[str, Any]) -> Settings:
         on_model_unavailable=pick("on_model_unavailable", "genie.on_model_unavailable", default="deterministic"),
         fail_on=pick("fail_on", "limits.fail_on", default="none"),
         fail_on_error=str(pick("fail_on_error", default="false")).lower() == "true",
+        depth=str(pick("depth", "analysis_depth", default="rapid")),
+        ontology=_bool(pick("ontology_enabled", "ontology.enabled", default=True)),
+        ontology_budget=int(pick("ontology_budget", "ontology.max_questions", default=4)),
         max_findings=int(pick("max_findings", "limits.max_findings", default=15)),
         min_confidence=float(pick("min_confidence", "limits.min_confidence", default=0.6)),
         instructions="\n\n".join(instructions),
@@ -132,13 +139,15 @@ def load(inputs: dict[str, Any]) -> Settings:
     )
     if s.fail_on not in FAIL_ON:
         raise ValueError(f"fail-on must be one of {FAIL_ON}, got {s.fail_on!r}")
+    if s.depth not in ("rapid", "detailed"):
+        raise ValueError(f"analysis-depth must be rapid or detailed, got {s.depth!r}")
     if s.on_model_unavailable not in ON_MODEL_UNAVAILABLE:
         raise ValueError(f"on-model-unavailable must be one of {ON_MODEL_UNAVAILABLE}")
     return s
 
 
 def _bool(v: Any) -> bool:
-    return str(v).lower() in ("1", "true", "yes", "on")
+    return str(v).lower() in ("1", "true", "yes", "on")  # "off" -> False
 
 
 def _report_settings(cfg: dict[str, Any]) -> dict[str, Any]:

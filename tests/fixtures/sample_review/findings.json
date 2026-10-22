@@ -12,7 +12,16 @@
     ],
     "suggestion": "Update or migrate the downstream objects before (or with) this change.",
     "confidence": 1.0,
-    "source": "deterministic"
+    "source": "deterministic",
+    "params": {
+      "table": "main.shop.silver_orders",
+      "removed": [
+        "cust_id"
+      ],
+      "consumers": [
+        "main.shop.gold_customer_ltv.cust_id"
+      ]
+    }
   },
   {
     "check": "contract.unknown-object",
@@ -26,7 +35,10 @@
     ],
     "suggestion": "Create the table first, fix the name, or add the task that produces it.",
     "confidence": 1.0,
-    "source": "deterministic"
+    "source": "deterministic",
+    "params": {
+      "table": "main.shop.silver_order_items"
+    }
   },
   {
     "check": "deploy.runtime-support",
@@ -40,7 +52,17 @@
     ],
     "suggestion": "Use a supported LTS runtime.",
     "confidence": 1.0,
-    "source": "deterministic"
+    "source": "deterministic",
+    "params": {
+      "version": "11.3.x-scala2.12",
+      "offered": [
+        "15.4.x-scala2.12",
+        "16.4.x-scala2.13",
+        "16.4.x-scala2.12",
+        "17.3.x-scala2.13",
+        "18.2.x-scala2.13"
+      ]
+    }
   },
   {
     "check": "contract.write-schema",
@@ -54,7 +76,16 @@
     ],
     "suggestion": "Plan the migration: keep the old column during a transition, or update consumers in the same change.",
     "confidence": 1.0,
-    "source": "deterministic"
+    "source": "deterministic",
+    "params": {
+      "table": "main.shop.silver_orders",
+      "removed": [
+        "cust_id"
+      ],
+      "added": [
+        "customer_id"
+      ]
+    }
   },
   {
     "check": "semantic.non-authoritative-source",
@@ -114,7 +145,18 @@
     ],
     "suggestion": "",
     "confidence": 1.0,
-    "source": "deterministic"
+    "source": "deterministic",
+    "params": {
+      "table": "main.shop.bronze_customers",
+      "column": "customer_segment",
+      "live": [
+        "cust_id",
+        "email",
+        "full_name",
+        "is_free_trial",
+        "segment"
+      ]
+    }
   },
   {
     "check": "semantic.metric-definition-drift",
@@ -142,7 +184,14 @@
     ],
     "suggestion": "Bring the out-of-band changes into the bundle, or confirm they should be reverted.",
     "confidence": 1.0,
-    "source": "deterministic"
+    "source": "deterministic",
+    "params": {
+      "job": "orders_etl",
+      "fields": [
+        "tags",
+        "timeout_seconds"
+      ]
+    }
   },
   {
     "check": "contract.type-mismatch",
@@ -157,7 +206,19 @@
     ],
     "suggestion": "Cast explicitly to a common type, or align the column types at the source.",
     "confidence": 1.0,
-    "source": "deterministic"
+    "source": "deterministic",
+    "params": {
+      "left": [
+        "main.shop.gold_customer_ltv",
+        "cust_id",
+        "bigint"
+      ],
+      "right": [
+        "main.shop.bronze_customers",
+        "cust_id",
+        "string"
+      ]
+    }
   },
   {
     "check": "contract.type-mismatch",
@@ -172,6 +233,18 @@
     ],
     "suggestion": "Cast explicitly to a common type, or align the column types at the source.",
     "confidence": 1.0,
-    "source": "deterministic"
+    "source": "deterministic",
+    "params": {
+      "left": [
+        "main.shop.silver_orders",
+        "customer_id",
+        "bigint"
+      ],
+      "right": [
+        "main.shop.bronze_customers",
+        "cust_id",
+        "string"
+      ]
+    }
   }
 ]

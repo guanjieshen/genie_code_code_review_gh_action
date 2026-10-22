@@ -14,6 +14,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import wording
 from .models import CATEGORIES, CONFIDENCE, MERGE_IMPACT, SEVERITIES, Finding
 
 # Stable rule -> category mapping. New rules default to "other".
@@ -23,6 +24,7 @@ RULE_CATEGORY = {
     "contract.type-mismatch": "contracts",
     "contract.write-schema": "contracts",
     "lineage.downstream-break": "lineage",
+    "ontology.identifier-relationship": "lineage",
     "semantic.metric-definition-drift": "semantics",
     "semantic.non-authoritative-source": "semantics",
     "governance.tagged-data-flow": "governance",
@@ -34,7 +36,7 @@ RULE_CATEGORY = {
 RULE_IMPACT = {
     "contract.unknown-object": "The task fails at runtime when it reads the missing object.",
     "contract.column-mismatch": "The query fails at runtime with an unresolved column error.",
-    "contract.type-mismatch": "Spark casts one side implicitly; values that do not convert become NULL and do not match, and the join cannot use data skipping.",
+    "contract.type-mismatch": "Spark casts one side implicitly; values that do not convert become NULL and do not match.",
     "contract.write-schema": "The write changes an existing table's columns, so readers of the old columns break.",
     "lineage.downstream-break": "Downstream tables and views that read the removed column fail or return wrong results after deploy.",
     "deploy.drift": "Deploying this change silently reverts settings someone changed on the live job.",
@@ -77,6 +79,13 @@ def _fact_kinds(f: Finding, facts: dict[str, Any]) -> set[str]:
     for e in f.evidence:
         if e.startswith("genie_one:"):
             kinds.add("genie_one")
+        elif e.startswith("ev:genie_one:"):
+            g1 = facts.get(e) or {}
+            if g1.get("status") == "answered":
+                kinds.add("genie_one")
+                kinds.add("genie_one_authoritative" if g1.get("authoritative") else "genie_one_hypothesis")
+                if g1.get("conflicting"):
+                    kinds.add("genie_one_conflict")
         elif e.endswith(":metric_view"):
             kinds.add("metric_view")
         elif e.endswith(":tags"):
@@ -113,8 +122,16 @@ def assess_confidence(f: Finding, facts: dict[str, Any]) -> str:
             return "high"  # types verified; the effect on rows depends on the data
         return "confirmed" if kinds & {"metadata", "deployed_state", "workspace", "column_lineage"} else "high"
     # Genie-derived: confidence depends on what it is anchored to
-    if f.check.startswith("semantic."):
-        level = "high" if kinds & {"metric_view", "governed_tag"} else "medium"
+    if f.check == "ontology.identifier-relationship":
+        # needs an authoritative business definition; an unsourced answer stays a hypothesis
+        if "genie_one_authoritative" not in kinds:
+            level = "low"
+        else:
+            level = "high" if "metadata" in kinds else "medium"
+        if "genie_one_conflict" in kinds:
+            level = "medium" if level == "high" else level
+    elif f.check.startswith("semantic."):
+        level = "high" if kinds & {"metric_view", "governed_tag", "genie_one_authoritative"} else "medium"
     elif f.check == "governance.tagged-data-flow":
         level = "medium"  # tags show classification; effective permissions and masks are not inspected
     else:
@@ -137,10 +154,13 @@ def merge_impact(f: Finding, policy: Policy) -> str:
 
 
 def detected_by(f: Finding, facts: dict[str, Any]) -> list[str]:
+    """Which capabilities actually produced or supported the finding.
+
+    "Genie Code" is the AI review engine; "Genie One" is listed only when the finding cites a Genie One
+    question that was asked. Exact checks are labelled with the data source they used.
+    """
     kinds = _fact_kinds(f, facts)
-    labels = []
-    if f.source == "genie":
-        labels.append("Genie")
+    labels = ["Genie Code"] if f.source == "genie" else ["Exact check"]
     if "genie_one" in kinds:
         labels.append("Genie One")
     if kinds & {"metadata", "tags", "governed_tag", "column_tags", "metric_view"}:
@@ -151,14 +171,26 @@ def detected_by(f: Finding, facts: dict[str, Any]) -> list[str]:
         labels.append("Deployed job")
     if "workspace" in kinds:
         labels.append("Workspace")
-    if f.source == "deterministic" and not labels:
-        labels.append("Code analysis")
     return labels
 
 
 def finding_id(f: Finding) -> str:
     key = "|".join([f.check, f.file, str(f.line), ",".join(f.affected_objects), f.title.lower()[:40]])
     return "f-" + hashlib.sha1(key.encode()).hexdigest()[:10]
+
+
+def _apply_wording(f: Finding, facts: dict[str, Any]) -> None:
+    """Exact checks are worded from their params; every actionable finding gets a fix; no repeated impact."""
+    if f.source == "deterministic" and f.params:
+        w = wording.exact(f.check, f.params)
+        if w:
+            f.title, f.explanation, f.impact, f.suggestion = w["title"], w["description"], w["impact"], w["recommendation"]
+    if not f.suggestion:
+        f.suggestion = wording.DEFAULT_RECOMMENDATION.get(f.check, "")
+    if f.impact and wording.overlaps(f.explanation, f.impact):
+        f.impact = ""
+    anchored = bool(_fact_kinds(f, facts) & {"metric_view", "governed_tag", "genie_one_authoritative"})
+    f.validation = f.validation or wording.validation_note(f.check, f.confidence, f.params, anchored)
 
 
 def normalize(findings: list[Finding], facts: dict[str, Any], policy: Policy) -> list[Finding]:
@@ -169,6 +201,7 @@ def normalize(findings: list[Finding], facts: dict[str, Any], policy: Policy) ->
         if f.source == "genie" and f.category == "semantics" and f.severity == "critical":
             f.severity = "high"  # semantic interpretation alone is not grounds for critical
         f.impact = f.impact or RULE_IMPACT.get(f.check, "")
+        _apply_wording(f, facts)
         f.detected_by = detected_by(f, facts)
         f.merge_impact = merge_impact(f, policy)
         f.id = finding_id(f)

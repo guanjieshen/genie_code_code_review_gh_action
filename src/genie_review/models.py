@@ -81,6 +81,8 @@ class Finding:
     source: str = "deterministic"   # deterministic | genie
     impact: str = ""                # consequence, in business terms where possible
     affected_objects: list[str] = field(default_factory=list)
+    params: dict[str, Any] = field(default_factory=dict)   # structured facts for exact checks (wording.py)
+    validation: str = ""            # what still needs checking, for findings that are not confirmed
     # ---- normalized (normalize.py / correlate.py)
     id: str = ""
     category: str = "other"
