@@ -36,6 +36,10 @@ inputs:
     description: Fail the check at this severity or above. `none`, `critical`, `high`, or `medium`.
     required: false
     default: ""
+  fail-on-error:
+    description: Fail the check when the review cannot run (for example sign-in or bundle errors). By default it posts how to fix the problem and passes.
+    required: false
+    default: "false"
   genie-model:
     description: Override the Genie Code model. Leave empty for Genie Code's default.
     required: false
@@ -181,7 +185,10 @@ runs:
         } > "$cfg"
         chmod 600 "$cfg"
         echo "DATABRICKS_CONFIG_FILE=$cfg" >> "$GITHUB_ENV"
-        databricks current-user me -p genie-review > /dev/null || { echo "::error::Could not authenticate to $HOST as $CLIENT_ID"; exit 1; }
+        # $GITHUB_ENV applies to later steps only, so export it for the check below too.
+        export DATABRICKS_CONFIG_FILE="$cfg"
+        # Do not fail here: the review step posts a comment that explains how to fix sign-in.
+        databricks current-user me -p genie-review > /dev/null 2>&1 || echo "::warning title=Genie Data Review::Could not sign in to $HOST with the reviewer identity."
 
     - name: Fetch base branch
       if: steps.guard.outputs.run == 'true'
@@ -202,6 +209,7 @@ runs:
         WAREHOUSE: ${{ inputs.warehouse-id }}
         SEMANTIC: ${{ inputs.semantic }}
         FAIL_ON: ${{ inputs.fail-on }}
+        FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
         GENIE_MODEL: ${{ inputs.genie-model }}
         GENIE_HOST: ${{ inputs.genie-host }}
         ON_MODEL_UNAVAILABLE: ${{ inputs.on-model-unavailable }}
@@ -216,6 +224,7 @@ runs:
         [[ -n "$WAREHOUSE" ]] && args+=(--warehouse-id "$WAREHOUSE")
         [[ -n "$SEMANTIC" ]] && args+=(--semantic "$SEMANTIC")
         [[ -n "$FAIL_ON" ]] && args+=(--fail-on "$FAIL_ON")
+        [[ -n "$FAIL_ON_ERROR" ]] && args+=(--fail-on-error "$FAIL_ON_ERROR")
         [[ -n "$GENIE_MODEL" ]] && args+=(--genie-model "$GENIE_MODEL")
         [[ -n "$GENIE_HOST" ]] && args+=(--genie-profile genie-review-model)
         [[ -n "$ON_MODEL_UNAVAILABLE" ]] && args+=(--on-model-unavailable "$ON_MODEL_UNAVAILABLE")

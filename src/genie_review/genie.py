@@ -40,6 +40,7 @@ class GenieRun:
     route: Route | None
     output: dict[str, Any] | None = None
     mcp_questions: list[str] = field(default_factory=list)
+    mcp_errors: list[str] = field(default_factory=list)
     usage: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
 
@@ -179,9 +180,11 @@ def run_review(s: Settings, route: Route, prompt: str, schema_path: Path, use_ge
             except json.JSONDecodeError:
                 continue
             item = evt.get("item") or {}
-            if evt.get("type") == "item.completed" and item.get("type") == "mcp_tool_call" and item.get("tool") == "genie_ask" \
-                    and item.get("status") == "completed":
-                run.mcp_questions.append((item.get("arguments") or {}).get("question", ""))
+            if evt.get("type") == "item.completed" and item.get("type") == "mcp_tool_call" and item.get("tool") == "genie_ask":
+                if item.get("status") == "completed":
+                    run.mcp_questions.append((item.get("arguments") or {}).get("question", ""))
+                else:
+                    run.mcp_errors.append(str((item.get("error") or {}).get("message", item.get("status")))[:200])
             if evt.get("type") == "turn.completed":
                 run.usage = evt.get("usage") or {}
             if evt.get("type") == "turn.failed":

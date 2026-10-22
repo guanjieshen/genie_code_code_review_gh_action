@@ -11,6 +11,7 @@ from typing import Any
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import NotFound, PermissionDenied
 
+from .access import AccessReport, classify
 from .impact import ImpactResult
 from .util import is_empty, log
 
@@ -20,9 +21,13 @@ DEV_PRESET_TAGS = {"dev"}  # added by bundle development mode
 
 
 class Evidence:
-    def __init__(self) -> None:
+    def __init__(self, principal: str = "<reviewer-application-id>") -> None:
         self.facts: dict[str, Any] = {}
-        self.gaps: list[str] = []  # what we could not read, for the coverage table
+        self.access = AccessReport(principal)  # what we could not read, and how to fix it
+
+    @property
+    def gaps(self) -> list[str]:
+        return [g.area for g in self.access.gaps]
 
     def put(self, ev_id: str, fact: Any) -> None:
         self.facts[ev_id] = fact
@@ -48,8 +53,8 @@ def _lit(v: str) -> str:
     return "'" + v.replace("'", "''") + "'"
 
 
-def collect(w: WorkspaceClient, impact: ImpactResult, warehouse: str | None) -> Evidence:
-    ev = Evidence()
+def collect(w: WorkspaceClient, impact: ImpactResult, warehouse: str | None, principal: str = "<reviewer-application-id>") -> Evidence:
+    ev = Evidence(principal)
     g = impact.graph
     tables = sorted(set(g.tables()))
 
@@ -71,7 +76,10 @@ def collect(w: WorkspaceClient, impact: ImpactResult, warehouse: str | None) -> 
             ev.put(f"ev:uc:{t}:metadata", {"exists": False})
         except PermissionDenied:
             ev.put(f"ev:uc:{t}:metadata", {"exists": None, "access": "denied"})
-            ev.gaps.append(f"metadata for {t} (no access)")
+            ev.access.table(t)
+        except Exception as e:  # noqa: BLE001
+            ev.put(f"ev:uc:{t}:metadata", {"exists": None, "access": classify(e)})
+            ev.access.table(t)
 
     # ---- tags and metric views (information_schema, needs a warehouse)
     by_catalog: dict[str, set[str]] = {}
@@ -92,9 +100,9 @@ def collect(w: WorkspaceClient, impact: ImpactResult, warehouse: str | None) -> 
                     if any(t in (mv.view_definition or "") for t in tables):
                         ev.put(f"ev:uc:{fq}:metric_view", {"comment": mv.comment, "definition": mv.view_definition})
             except Exception as e:  # noqa: BLE001
-                ev.gaps.append(f"tags/metric views in {c} ({str(e)[:80]})")
+                ev.access.warehouse(warehouse, f"tags in {c}: {classify(e)}")
     else:
-        ev.gaps.append("tags and metric views (no SQL warehouse available)")
+        ev.access.warehouse(None, "no SQL warehouse the reviewer can use")
 
     # ---- downstream lineage for existing tables this PR writes
     for t in g.tables_with("writes"):
@@ -104,8 +112,8 @@ def collect(w: WorkspaceClient, impact: ImpactResult, warehouse: str | None) -> 
         try:
             lin = w.api_client.do("GET", "/api/2.0/lineage-tracking/table-lineage",
                                   body={"table_name": t, "include_entity_lineage": True})
-        except Exception as e:  # noqa: BLE001
-            ev.gaps.append(f"lineage for {t} ({str(e)[:80]})")
+        except Exception:  # noqa: BLE001
+            ev.access.lineage(t)
             continue
         downs: list[dict[str, Any]] = []
         for d in lin.get("downstreams", []):
@@ -122,8 +130,8 @@ def collect(w: WorkspaceClient, impact: ImpactResult, warehouse: str | None) -> 
                 cl = w.api_client.do("GET", "/api/2.0/lineage-tracking/column-lineage", body={"table_name": t, "column_name": col})
                 ev.put(f"ev:lineage:{t}.{col}:downstream", {"downstream_columns": [
                     f"{d['catalog_name']}.{d['schema_name']}.{d['table_name']}.{d['name']}" for d in cl.get("downstream_cols", [])]})
-            except Exception as e:  # noqa: BLE001
-                ev.gaps.append(f"column lineage for {t}.{col} ({str(e)[:80]})")
+            except Exception:  # noqa: BLE001
+                ev.access.lineage(t)
 
     # ---- deployed job state vs bundle on the base branch (drift)
     base_jobs = (impact.base_bundle.get("resources") or {}).get("jobs") or {}
@@ -133,8 +141,8 @@ def collect(w: WorkspaceClient, impact: ImpactResult, warehouse: str | None) -> 
         jkey = nid.split(".", 1)[1]
         try:
             dep = w.jobs.get(int(n["deployed_id"])).settings.as_dict()
-        except Exception as e:  # noqa: BLE001
-            ev.gaps.append(f"deployed job {n['deployed_id']} ({str(e)[:80]})")
+        except Exception:  # noqa: BLE001
+            ev.access.job(n["deployed_id"])
             continue
         base_job = base_jobs.get(jkey, {})
         drift = {}
@@ -163,11 +171,20 @@ def collect(w: WorkspaceClient, impact: ImpactResult, warehouse: str | None) -> 
         wanted |= {t["new_cluster"].get("spark_version") for t in job.get("tasks", []) if t.get("new_cluster")}
     wanted.discard(None)
     if wanted:
-        offered = {v.key for v in w.clusters.spark_versions().versions or []}
+        try:
+            offered = {v.key for v in w.clusters.spark_versions().versions or []}
+        except Exception as e:  # noqa: BLE001
+            ev.access.add("Databricks Runtime versions", "`deploy.runtime-support`", f"Workspace API error: {classify(e)}")
+            offered = None
+    if wanted and offered is not None:
         plain = re.compile(r"^\d+\.(\d+|x)\.x-scala2\.1[23]$")
         lts = sorted((v for v in offered if plain.match(v)), key=lambda v: [int(x) if x.isdigit() else 99 for x in v.split("-")[0].split(".")])
         for sv in sorted(wanted):
             ev.put(f"ev:workspace:spark_version:{sv}", {"offered_by_workspace": sv in offered, "examples_offered": lts[-5:]})
 
-    log(f"{len(ev.facts)} evidence facts, {len(ev.gaps)} gaps")
+    # A job that exists on the base branch should already be deployed; if we found no id, we cannot see its state
+    for nid, n in g.nodes.items():
+        if n["kind"] == "job" and not n.get("deployed_id") and nid[4:].split(".", 1)[1] in base_jobs:
+            ev.access.deployed_state()
+    log(f"{len(ev.facts)} evidence facts, {len(ev.access.gaps)} access gaps")
     return ev
