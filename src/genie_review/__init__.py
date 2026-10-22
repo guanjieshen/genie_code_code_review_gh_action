@@ -1,3 +1,3 @@
 """Data-specific pull request review for Databricks, powered by Genie Code and Genie One."""
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"

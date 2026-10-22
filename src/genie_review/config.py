@@ -6,6 +6,7 @@ request cannot change how it is reviewed.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,7 @@ class Settings:
     disable: list[str] = field(default_factory=list)
     severity: dict[str, str] = field(default_factory=dict)
     config_source: str = "defaults"
+    bundle_dir: str = "."
 
     @property
     def model_profile(self) -> str:
@@ -58,7 +60,9 @@ def load(inputs: dict[str, Any]) -> Settings:
     """Build Settings from CLI/action inputs plus the base-branch config file."""
     repo = Path(inputs["repo"]).resolve()
     base_ref = inputs["base_ref"]
-    config_path = inputs.get("config_file") or DEFAULT_CONFIG_PATH
+    bundle_dir = os.path.normpath(inputs.get("bundle_dir") or ".")
+    # Paths in the config file (and the default config location) are relative to the bundle folder
+    config_path = inputs.get("config_file") or os.path.normpath(os.path.join(bundle_dir, DEFAULT_CONFIG_PATH))
 
     file_cfg: dict[str, Any] = {}
     raw = read_from_base(repo, base_ref, config_path)
@@ -82,7 +86,7 @@ def load(inputs: dict[str, Any]) -> Settings:
     instructions = []
     instr_file = file_cfg.get("instructions_file")
     if instr_file:
-        text = read_from_base(repo, base_ref, instr_file)
+        text = read_from_base(repo, base_ref, os.path.normpath(os.path.join(bundle_dir, instr_file)))
         if text:
             instructions.append(text.strip())
     if inputs.get("instructions"):
@@ -109,6 +113,7 @@ def load(inputs: dict[str, Any]) -> Settings:
         disable=list(checks.get("disable") or []),
         severity=dict(checks.get("severity") or {}),
         config_source=config_path if raw else "defaults",
+        bundle_dir=bundle_dir,
     )
     if s.fail_on not in FAIL_ON:
         raise ValueError(f"fail-on must be one of {FAIL_ON}, got {s.fail_on!r}")

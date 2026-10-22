@@ -20,6 +20,10 @@ inputs:
     description: Bundle target to review against. Defaults to the bundle's default target.
     required: false
     default: ""
+  bundle-dir:
+    description: Folder that contains databricks.yml, relative to the repo root. Use this in monorepos.
+    required: false
+    default: "."
   warehouse-id:
     description: SQL warehouse for metadata queries. Defaults to the first serverless warehouse the reviewer can use.
     required: false
@@ -53,9 +57,9 @@ inputs:
     required: false
     default: ""
   config-file:
-    description: Path to the repo config file (read from the base branch).
+    description: Path to the repo config file (read from the base branch). Defaults to .genie-review/config.yml in bundle-dir.
     required: false
-    default: .genie-review/config.yml
+    default: ""
   instructions:
     description: Extra team context for the reviewer, appended to the base-branch instructions file.
     required: false
@@ -107,11 +111,11 @@ runs:
 
     - name: Set up uv
       if: steps.guard.outputs.run == 'true'
-      uses: astral-sh/setup-uv@v10.2.0
+      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
     - name: Set up Databricks CLI
       if: steps.guard.outputs.run == 'true'
-      uses: databricks/setup-cli@v1.20.0
+      uses: databricks/setup-cli@9b64c94a6d2b2e830592d80e9f14c26d32b42ad7 # v1.20.0
 
     - name: Install Genie Code CLI
       if: steps.guard.outputs.run == 'true'
@@ -194,6 +198,7 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         BASE_REF: ${{ github.base_ref }}
         TARGET: ${{ inputs.bundle-target }}
+        BUNDLE_DIR: ${{ inputs.bundle-dir }}
         WAREHOUSE: ${{ inputs.warehouse-id }}
         SEMANTIC: ${{ inputs.semantic }}
         FAIL_ON: ${{ inputs.fail-on }}
@@ -205,7 +210,8 @@ runs:
       run: |
         set -euo pipefail
         args=(run --repo "$GITHUB_WORKSPACE" --base-ref "origin/$BASE_REF" --profile genie-review
-              --genie-bin "$GENIE_BIN" --config-file "$CONFIG_FILE" --out-dir "$RUNNER_TEMP/genie-review")
+              --genie-bin "$GENIE_BIN" --bundle-dir "$BUNDLE_DIR" --out-dir "$RUNNER_TEMP/genie-review")
+        [[ -n "$CONFIG_FILE" ]] && args+=(--config-file "$CONFIG_FILE")
         [[ -n "$TARGET" ]] && args+=(--target "$TARGET")
         [[ -n "$WAREHOUSE" ]] && args+=(--warehouse-id "$WAREHOUSE")
         [[ -n "$SEMANTIC" ]] && args+=(--semantic "$SEMANTIC")
@@ -218,7 +224,7 @@ runs:
 
     - name: Upload review artifacts
       if: always() && steps.guard.outputs.run == 'true' && inputs.upload-artifacts == 'true'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: genie-data-review
         path: ${{ runner.temp }}/genie-review

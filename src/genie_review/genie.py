@@ -133,11 +133,12 @@ def probe(genie_bin: str, route: Route) -> tuple[bool, str]:
         return False, err[:200]
 
 
-def sanitized_worktree(repo: Path, base_ref: str, dest: Path) -> Path:
+def sanitized_worktree(repo: Path, base_ref: str, dest: Path, bundle_dir: str = ".") -> Path:
     """A detached worktree at HEAD whose agent-config paths are replaced with the base branch's versions."""
     sh(["git", "worktree", "add", "--detach", str(dest), "HEAD"], cwd=repo)
     rules = [p for p in sh(["git", "ls-files", "*.rules"], cwd=dest).splitlines() if p]
-    for rel in AGENT_CONFIG_PATHS + rules:
+    nested = [p for p in sh(["git", "ls-files", "*AGENTS.md", "*AGENTS.override.md"], cwd=dest).splitlines() if p]
+    for rel in AGENT_CONFIG_PATHS + rules + nested + [os.path.join(bundle_dir, p) for p in AGENT_CONFIG_PATHS if bundle_dir != "."]:
         target = dest / rel
         if target.is_dir():
             shutil.rmtree(target)
@@ -157,7 +158,7 @@ def run_review(s: Settings, route: Route, prompt: str, schema_path: Path, use_ge
         tmp_p = Path(tmp)
         home = tmp_p / "home"
         write_home(home, route, _client(s.profile).config.host.rstrip("/") if use_genie_one else None)
-        tree = sanitized_worktree(s.repo, s.base_ref, tmp_p / "tree")
+        tree = sanitized_worktree(s.repo, s.base_ref, tmp_p / "tree", s.bundle_dir)
         out_file = tmp_p / "out.json"
         env = {**os.environ, "GENIE_HOME": str(home)}
         if use_genie_one:
