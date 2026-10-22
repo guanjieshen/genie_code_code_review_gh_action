@@ -14,6 +14,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import wording
 from .models import CATEGORIES, CONFIDENCE, MERGE_IMPACT, SEVERITIES, Finding
 
 # Stable rule -> category mapping. New rules default to "other".
@@ -34,7 +35,7 @@ RULE_CATEGORY = {
 RULE_IMPACT = {
     "contract.unknown-object": "The task fails at runtime when it reads the missing object.",
     "contract.column-mismatch": "The query fails at runtime with an unresolved column error.",
-    "contract.type-mismatch": "Spark casts one side implicitly; values that do not convert become NULL and do not match, and the join cannot use data skipping.",
+    "contract.type-mismatch": "Spark casts one side implicitly; values that do not convert become NULL and do not match.",
     "contract.write-schema": "The write changes an existing table's columns, so readers of the old columns break.",
     "lineage.downstream-break": "Downstream tables and views that read the removed column fail or return wrong results after deploy.",
     "deploy.drift": "Deploying this change silently reverts settings someone changed on the live job.",
@@ -137,10 +138,13 @@ def merge_impact(f: Finding, policy: Policy) -> str:
 
 
 def detected_by(f: Finding, facts: dict[str, Any]) -> list[str]:
+    """Which capabilities actually produced or supported the finding.
+
+    "Genie Code" is the AI review engine; "Genie One" is listed only when the finding cites a Genie One
+    question that was asked. Exact checks are labelled with the data source they used.
+    """
     kinds = _fact_kinds(f, facts)
-    labels = []
-    if f.source == "genie":
-        labels.append("Genie")
+    labels = ["Genie Code"] if f.source == "genie" else ["Exact check"]
     if "genie_one" in kinds:
         labels.append("Genie One")
     if kinds & {"metadata", "tags", "governed_tag", "column_tags", "metric_view"}:
@@ -151,14 +155,26 @@ def detected_by(f: Finding, facts: dict[str, Any]) -> list[str]:
         labels.append("Deployed job")
     if "workspace" in kinds:
         labels.append("Workspace")
-    if f.source == "deterministic" and not labels:
-        labels.append("Code analysis")
     return labels
 
 
 def finding_id(f: Finding) -> str:
     key = "|".join([f.check, f.file, str(f.line), ",".join(f.affected_objects), f.title.lower()[:40]])
     return "f-" + hashlib.sha1(key.encode()).hexdigest()[:10]
+
+
+def _apply_wording(f: Finding, facts: dict[str, Any]) -> None:
+    """Exact checks are worded from their params; every actionable finding gets a fix; no repeated impact."""
+    if f.source == "deterministic" and f.params:
+        w = wording.exact(f.check, f.params)
+        if w:
+            f.title, f.explanation, f.impact, f.suggestion = w["title"], w["description"], w["impact"], w["recommendation"]
+    if not f.suggestion:
+        f.suggestion = wording.DEFAULT_RECOMMENDATION.get(f.check, "")
+    if f.impact and wording.overlaps(f.explanation, f.impact):
+        f.impact = ""
+    anchored = bool(_fact_kinds(f, facts) & {"metric_view", "governed_tag"})
+    f.validation = f.validation or wording.validation_note(f.check, f.confidence, f.params, anchored)
 
 
 def normalize(findings: list[Finding], facts: dict[str, Any], policy: Policy) -> list[Finding]:
@@ -169,6 +185,7 @@ def normalize(findings: list[Finding], facts: dict[str, Any], policy: Policy) ->
         if f.source == "genie" and f.category == "semantics" and f.severity == "critical":
             f.severity = "high"  # semantic interpretation alone is not grounds for critical
         f.impact = f.impact or RULE_IMPACT.get(f.check, "")
+        _apply_wording(f, facts)
         f.detected_by = detected_by(f, facts)
         f.merge_impact = merge_impact(f, policy)
         f.id = finding_id(f)

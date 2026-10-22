@@ -14,7 +14,7 @@ from typing import Callable
 
 from databricks.sdk import WorkspaceClient
 
-from . import __version__, checks, evidence, genie, impact, prompt, publish, render
+from . import __version__, capabilities, checks, evidence, genie, impact, prompt, publish, render
 from .access import classify
 from .correlate import correlate, needs_attention
 from .normalize import Policy, normalize, visible
@@ -106,9 +106,11 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
     # ---- Genie review (optional; exact checks above always post)
     notes: list[str] = []
     genie_ran = False
+    genie_code_status = "not needed"
+    genie_one_status: dict = {}
     gen: list[Finding] = []
     summary = ""
-    route_note = "Reviewer: exact checks only."
+    route_note = "AI review engine: not needed. Exact checks only."
     if plan:
         with group("Analyze: Genie review"):
             try:
@@ -116,10 +118,11 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
             except Exception as e:  # noqa: BLE001
                 route, route_notes = None, [classify(e)]
             if route is None:
+                genie_code_status = "unavailable"
                 ev.access.genie_code(route_notes)
                 if s.on_model_unavailable == "fail":
                     return _problem(s, "Genie Code model unavailable", "; ".join(route_notes), [ev.access.gaps[-1].fix], publish_to_github)
-                route_note = "Reviewer: exact checks only (no Genie Code model was reachable)."
+                route_note = "AI review engine: unavailable (no Genie Code model was reachable). Exact checks only."
                 if s.on_model_unavailable == "skip":
                     det = []
             else:
@@ -133,6 +136,10 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                 except Exception as e:  # noqa: BLE001
                     gr = genie.GenieRun(route, error=classify(e))
                 genie_ran = gr.output is not None
+                genie_code_status = "ran" if genie_ran else "unavailable"
+                genie_one_status = ({"status": "Ran", "detail": f"{len(gr.mcp_questions)} question(s) asked by Genie Code"} if gr.mcp_questions
+                                    else {"status": "Not needed", "detail": "Unity Catalog evidence answered the semantic checks"} if use_g1
+                                    else {"status": "Not needed", "detail": "no semantic or governance checks planned"})
                 if gr.error:
                     notes.append(f"Genie review incomplete: {gr.error}")
                 for err in gr.mcp_errors:
@@ -141,9 +148,8 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                 notes += gnotes
                 if gr.output and gr.output.get("injection_attempts"):
                     notes.append(f"{len(gr.output['injection_attempts'])} possible prompt-injection attempt(s) ignored")
-                route_note = (f"Reviewer: Genie Code `{route.model}` via {route.label}"
-                              + ((f"; semantics: Genie One ({len(gr.mcp_questions)} questions)" if gr.mcp_questions
-                                  else "; semantics: Genie One available, not needed") if use_g1 else "") + ".")
+                route_note = (f"AI review engine: Genie Code `{route.model}` via {route.label}. "
+                              + (f"Genie One: {len(gr.mcp_questions)} question(s)." if gr.mcp_questions else "Genie One: not called."))
                 write_json(s.out_dir / "genie_output.json", gr.output or {"error": gr.error})
 
     # ---- process results: normalize -> filter -> correlate -> prioritize
@@ -157,8 +163,9 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
     review = Review(
         summary=summary or publish.fallback_summary(imp), groups=groups, priority=priority, findings=findings,
         hidden=len(findings) - sum(len(g.findings) for g in groups),
-        coverage=checks.coverage(plan, findings, enabled, ev, genie_ran), access_md=ev.access.render(),
-        access_count=len(ev.access.gaps), route_note=route_note, notes=notes)
+        coverage=checks.coverage(plan, findings, enabled, ev, genie_ran),
+        capabilities=capabilities.build(imp.graph.to_dict(), ev.facts, findings, ev.gaps, genie_code_status, genie_one_status),
+        facts=ev.facts, access_md=ev.access.render(), access_count=len(ev.access.gaps), route_note=route_note, notes=notes)
     body = render.markdown(review, link_context(s))
     write_json(s.out_dir / "review.json", render.to_json(review, __version__))
     url = _publish(s, body, findings, publish_to_github)
