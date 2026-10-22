@@ -1,0 +1,225 @@
+name: Genie Data Review
+description: Data-specific pull request review for Databricks, powered by Genie Code and Genie One. Runs alongside general code review.
+author: Guanjie Shen
+branding:
+  icon: database
+  color: orange
+
+inputs:
+  databricks-host:
+    description: Workspace URL the code deploys to (for example https://adb-123.11.azuredatabricks.net).
+    required: true
+  client-id:
+    description: Application ID of the read-only reviewer service principal.
+    required: true
+  client-secret:
+    description: OAuth secret of the reviewer service principal. Leave empty to use GitHub OIDC federation.
+    required: false
+    default: ""
+  bundle-target:
+    description: Bundle target to review against. Defaults to the bundle's default target.
+    required: false
+    default: ""
+  warehouse-id:
+    description: SQL warehouse for metadata queries. Defaults to the first serverless warehouse the reviewer can use.
+    required: false
+    default: ""
+  semantic:
+    description: Semantic checks backend. `genie-one` or `off`.
+    required: false
+    default: ""
+  fail-on:
+    description: Fail the check at this severity or above. `none`, `critical`, `high`, or `medium`.
+    required: false
+    default: ""
+  genie-model:
+    description: Override the Genie Code model. Leave empty for Genie Code's default.
+    required: false
+    default: ""
+  genie-host:
+    description: Separate workspace that serves the Genie Code model, when the target workspace does not. Data and evidence stay on databricks-host.
+    required: false
+    default: ""
+  genie-client-id:
+    description: Service principal for genie-host. Defaults to client-id.
+    required: false
+    default: ""
+  genie-client-secret:
+    description: OAuth secret for genie-host. Defaults to client-secret.
+    required: false
+    default: ""
+  on-model-unavailable:
+    description: What to do if no Genie Code model is reachable. `deterministic` (post exact checks only), `skip`, or `fail`.
+    required: false
+    default: ""
+  config-file:
+    description: Path to the repo config file (read from the base branch).
+    required: false
+    default: .genie-review/config.yml
+  instructions:
+    description: Extra team context for the reviewer, appended to the base-branch instructions file.
+    required: false
+    default: ""
+  genie-version:
+    description: Genie Code CLI release to install.
+    required: false
+    default: v0.2.0
+  upload-artifacts:
+    description: Upload the impact graph, evidence, and prompt as a workflow artifact for debugging. They contain table and column metadata, so keep this off in public repositories.
+    required: false
+    default: "false"
+  github-token:
+    description: Token used to post the review comment.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  findings:
+    description: Number of findings posted.
+    value: ${{ steps.review.outputs.findings }}
+  critical:
+    description: Number of critical findings.
+    value: ${{ steps.review.outputs.critical }}
+  comment-url:
+    description: URL of the review comment.
+    value: ${{ steps.review.outputs.comment_url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check event
+      id: guard
+      shell: bash
+      env:
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        THIS_REPO: ${{ github.repository }}
+        EVENT: ${{ github.event_name }}
+      run: |
+        if [[ "$EVENT" != "pull_request" ]]; then
+          echo "::notice::Genie Data Review runs on pull_request events only. Skipping."
+          echo "run=false" >> "$GITHUB_OUTPUT"
+        elif [[ "$HEAD_REPO" != "$THIS_REPO" ]]; then
+          echo "::notice::Pull requests from forks do not receive secrets. Skipping Genie Data Review."
+          echo "run=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "run=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Set up uv
+      if: steps.guard.outputs.run == 'true'
+      uses: astral-sh/setup-uv@v10.2.0
+
+    - name: Set up Databricks CLI
+      if: steps.guard.outputs.run == 'true'
+      uses: databricks/setup-cli@v1.20.0
+
+    - name: Install Genie Code CLI
+      if: steps.guard.outputs.run == 'true'
+      shell: bash
+      env:
+        GENIE_VERSION: ${{ inputs.genie-version }}
+      run: |
+        set -euo pipefail
+        case "$(uname -m)" in
+          x86_64) arch=x86_64 ;;
+          aarch64|arm64) arch=aarch64 ;;
+          *) echo "::error::Unsupported runner architecture $(uname -m)"; exit 1 ;;
+        esac
+        case "$(uname -s)" in
+          Linux) target="${arch}-unknown-linux-musl" ;;
+          Darwin) target="${arch}-apple-darwin" ;;
+          *) echo "::error::Unsupported runner OS $(uname -s)"; exit 1 ;;
+        esac
+        pkg="genie-package-${target}.tar.gz"
+        base="https://github.com/databricks/genie-code-cli/releases/download/${GENIE_VERSION}"
+        dir="${RUNNER_TEMP}/genie-cli"
+        mkdir -p "$dir" && cd "$dir"
+        curl -fsSL -o "$pkg" "$base/$pkg"
+        curl -fsSL -o "$pkg.sha256" "$base/$pkg.sha256"
+        expected="$(awk '{print $1}' "$pkg.sha256")"
+        actual="$( (sha256sum "$pkg" 2>/dev/null || shasum -a 256 "$pkg") | awk '{print $1}')"
+        if [[ "$expected" != "$actual" ]]; then echo "::error::Checksum mismatch for $pkg"; exit 1; fi
+        tar xzf "$pkg"
+        echo "$dir/bin" >> "$GITHUB_PATH"
+        echo "GENIE_BIN=$dir/bin/genie" >> "$GITHUB_ENV"
+
+    - name: Configure Databricks auth
+      if: steps.guard.outputs.run == 'true'
+      shell: bash
+      env:
+        HOST: ${{ inputs.databricks-host }}
+        CLIENT_ID: ${{ inputs.client-id }}
+        CLIENT_SECRET: ${{ inputs.client-secret }}
+        GENIE_HOST: ${{ inputs.genie-host }}
+        GENIE_CLIENT_ID: ${{ inputs.genie-client-id }}
+        GENIE_CLIENT_SECRET: ${{ inputs.genie-client-secret }}
+      run: |
+        set -euo pipefail
+        cfg="${RUNNER_TEMP}/databrickscfg"
+        profile() {
+          local name="$1" host="$2" id="$3" secret="$4"
+          echo "[$name]"
+          echo "host = $host"
+          echo "client_id = $id"
+          if [[ -n "$secret" ]]; then
+            echo "client_secret = $secret"
+            echo "auth_type = oauth-m2m"
+          else
+            echo "auth_type = github-oidc"
+          fi
+          echo
+        }
+        {
+          profile genie-review "$HOST" "$CLIENT_ID" "$CLIENT_SECRET"
+          if [[ -n "$GENIE_HOST" ]]; then
+            profile genie-review-model "$GENIE_HOST" "${GENIE_CLIENT_ID:-$CLIENT_ID}" "${GENIE_CLIENT_SECRET:-$CLIENT_SECRET}"
+          fi
+        } > "$cfg"
+        chmod 600 "$cfg"
+        echo "DATABRICKS_CONFIG_FILE=$cfg" >> "$GITHUB_ENV"
+        databricks current-user me -p genie-review > /dev/null || { echo "::error::Could not authenticate to $HOST as $CLIENT_ID"; exit 1; }
+
+    - name: Fetch base branch
+      if: steps.guard.outputs.run == 'true'
+      shell: bash
+      env:
+        BASE_REF: ${{ github.base_ref }}
+      run: git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+    - name: Review
+      id: review
+      if: steps.guard.outputs.run == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        BASE_REF: ${{ github.base_ref }}
+        TARGET: ${{ inputs.bundle-target }}
+        WAREHOUSE: ${{ inputs.warehouse-id }}
+        SEMANTIC: ${{ inputs.semantic }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        GENIE_MODEL: ${{ inputs.genie-model }}
+        GENIE_HOST: ${{ inputs.genie-host }}
+        ON_MODEL_UNAVAILABLE: ${{ inputs.on-model-unavailable }}
+        CONFIG_FILE: ${{ inputs.config-file }}
+        INSTRUCTIONS: ${{ inputs.instructions }}
+      run: |
+        set -euo pipefail
+        args=(run --repo "$GITHUB_WORKSPACE" --base-ref "origin/$BASE_REF" --profile genie-review
+              --genie-bin "$GENIE_BIN" --config-file "$CONFIG_FILE" --out-dir "$RUNNER_TEMP/genie-review")
+        [[ -n "$TARGET" ]] && args+=(--target "$TARGET")
+        [[ -n "$WAREHOUSE" ]] && args+=(--warehouse-id "$WAREHOUSE")
+        [[ -n "$SEMANTIC" ]] && args+=(--semantic "$SEMANTIC")
+        [[ -n "$FAIL_ON" ]] && args+=(--fail-on "$FAIL_ON")
+        [[ -n "$GENIE_MODEL" ]] && args+=(--genie-model "$GENIE_MODEL")
+        [[ -n "$GENIE_HOST" ]] && args+=(--genie-profile genie-review-model)
+        [[ -n "$ON_MODEL_UNAVAILABLE" ]] && args+=(--on-model-unavailable "$ON_MODEL_UNAVAILABLE")
+        [[ -n "$INSTRUCTIONS" ]] && args+=(--instructions "$INSTRUCTIONS")
+        uv run --quiet --frozen --project "$GITHUB_ACTION_PATH" genie-review "${args[@]}"
+
+    - name: Upload review artifacts
+      if: always() && steps.guard.outputs.run == 'true' && inputs.upload-artifacts == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: genie-data-review
+        path: ${{ runner.temp }}/genie-review
+        if-no-files-found: ignore

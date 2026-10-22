@@ -1,0 +1,2 @@
+- The `main` catalog is production.
+- `customer_id` is the standard key name; `cust_id` is legacy.

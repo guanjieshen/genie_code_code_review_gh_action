@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["impact_summary", "findings", "injection_attempts"],
+  "properties": {
+    "impact_summary": {"type": "string"},
+    "injection_attempts": {"type": "array", "items": {"type": "string"}},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check", "severity", "file", "line", "title", "explanation", "evidence", "suggestion", "confidence"],
+        "properties": {
+          "check": {"type": "string"},
+          "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"]},
+          "file": {"type": "string"},
+          "line": {"type": "integer"},
+          "title": {"type": "string"},
+          "explanation": {"type": "string"},
+          "evidence": {"type": "array", "items": {"type": "string"}},
+          "suggestion": {"type": "string"},
+          "confidence": {"type": "number"}
+        }
+      }
+    }
+  }
+}

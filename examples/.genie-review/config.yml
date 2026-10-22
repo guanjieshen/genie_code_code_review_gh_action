@@ -1,0 +1,8 @@
+target: staging
+fail_on: none
+semantic: genie-one
+checks:
+  disable: []
+  severity:
+    lineage.downstream-break: critical
+instructions_file: .genie-review/instructions.md
