@@ -182,3 +182,10 @@ def test_grain_and_filter_questions_are_planned_first(scenario):
     assert "aggregation_grain" in top and top["aggregation_grain"].concept == "orders.o_totalprice"
     assert "filter_semantics" in top and "fulfilled_orders" in top["filter_semantics"].text
     assert ontology.table_entity("samples.tpch.orders") == "order" and ontology.table_entity("samples.tpch.lineitem") == "lineitem"
+
+
+def test_queries_on_the_reviewed_schema_anchor_a_page():
+    cites = [{"kind": "uc_page", "ref": "p", "label": "Order"}]
+    sql = ["SELECT COUNT(*) FROM `samples`.`tpch`.`orders` o JOIN samples.tpch.lineitem l ON o.o_orderkey = l.l_orderkey"]
+    assert ontology.assess("ok", cites, {}, "orders.o_totalprice", ["uc:samples.tpch.orders.o_totalprice"], sql)[0] is True
+    assert ontology.assess("ok", cites, {}, "orders.o_totalprice", ["uc:samples.tpch.orders.o_totalprice"], ["SELECT 1"])[0] is False

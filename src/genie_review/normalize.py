@@ -89,6 +89,8 @@ def _fact_kinds(f: Finding, facts: dict[str, Any]) -> set[str]:
             if g1.get("status") == "answered":
                 kinds.add("genie_one")
                 kinds.add("genie_one_authoritative" if g1.get("authoritative") else "genie_one_hypothesis")
+                if g1.get("queries"):
+                    kinds.add("genie_one_data")   # Genie One ran queries against the reviewed tables
                 if g1.get("conflicting"):
                     kinds.add("genie_one_conflict")
         elif e.endswith(":metric_view"):
@@ -132,7 +134,7 @@ def assess_confidence(f: Finding, facts: dict[str, Any]) -> str:
         if "genie_one_authoritative" not in kinds:
             level = "low"
         else:
-            level = "high" if "metadata" in kinds else "medium"
+            level = "high" if kinds & {"metadata", "genie_one_data"} else "medium"
         if "genie_one_conflict" in kinds:
             level = "medium" if level == "high" else level
     elif f.check.startswith("semantic."):

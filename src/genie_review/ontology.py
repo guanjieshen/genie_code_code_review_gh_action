@@ -297,7 +297,7 @@ def _tokens(s: str) -> set[str]:
 
 
 def assess(answer: str, citations: list[dict[str, str]], facts: dict[str, Any], concept: str = "",
-           objects: list[str] | None = None) -> tuple[bool, bool]:
+           objects: list[str] | None = None, queries: list[str] | None = None) -> tuple[bool, bool]:
     """(authoritative, conflicting).
 
     Authoritative needs a cited governed source that is relevant to the question:
@@ -315,7 +315,7 @@ def assess(answer: str, citations: list[dict[str, str]], facts: dict[str, Any], 
         # The API does not return page content, so a page counts only if its title matches the concept AND the
         # same answer ties it to an object in the reviewed schema.
         anchored_here = any(c["kind"] == "uc_object" and (not schemas or ".".join(c["ref"].split(".")[:2]) in schemas)
-                            for c in citations)
+                            for c in citations) or any(sch.lower() in (q or "").replace("`", "").lower() for q in (queries or []) for sch in schemas)
         for c in citations:
             if c["kind"] == "uc_page":
                 title_match = bool(want and want & _tokens(c.get("label", "")))
@@ -379,10 +379,10 @@ def _ask_one(q: Question, client: GenieOne | None, facts: dict[str, Any]) -> Ans
         return Answer(q.id, "error", error=str(e)[:200])
     text = ps.get("final_answer") or ""
     cites = citations_in(text)
-    auth, conflict = assess(text, cites, facts, q.concept, q.objects)
+    queries = [i.get("sql", "") for i in ps.get("query_items") or []]
+    auth, conflict = assess(text, cites, facts, q.concept, q.objects, queries)
     status = "answered" if ps.get("status") == "completed" and text.strip() else "no_answer"
-    return Answer(q.id, status, text[:3000], cites, [i.get("sql", "") for i in ps.get("query_items") or []],
-                  auth, conflict, ps.get("deep_link", ""), ps.get("_seconds", 0.0))
+    return Answer(q.id, status, text[:3000], cites, queries, auth, conflict, ps.get("deep_link", ""), ps.get("_seconds", 0.0))
 
 
 def ask(questions: list[Question], client_factory, facts: dict[str, Any], parallel: int = 4) -> list[Answer]:
