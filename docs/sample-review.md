@@ -86,9 +86,9 @@ The governed net-revenue metric excludes cancelled and test orders, while this t
 
 **Also needs action (3)**
 
-- 🟠 **High** — Segment revenue does not apply governed revenue filters · [`src/gold_segment_revenue_v2.sql:5`](https://github.com/acme/data-platform/blob/0123abc/src/gold_segment_revenue_v2.sql#L5)
-- 🟠 **High** — References missing column `customer_segment` on `bronze_customers` · [`src/gold_segment_revenue_v2.sql:4`](https://github.com/acme/data-platform/blob/0123abc/src/gold_segment_revenue_v2.sql#L4)
-- 🟠 **High** — Uses runtime `11.3.x-scala2.12`, which this workspace does not offer · [`resources/orders_etl.job.yml:41`](https://github.com/acme/data-platform/blob/0123abc/resources/orders_etl.job.yml#L41)
+- 🟠 **High** — Segment revenue does not apply governed revenue filters · [`src/gold_segment_revenue_v2.sql:5`](https://github.com/acme/data-platform/blob/0123abc/src/gold_segment_revenue_v2.sql#L5) · details under *Business semantics & metrics*
+- 🟠 **High** — References missing column `customer_segment` on `bronze_customers` · [`src/gold_segment_revenue_v2.sql:4`](https://github.com/acme/data-platform/blob/0123abc/src/gold_segment_revenue_v2.sql#L4) · details under *Data contracts & compatibility*
+- 🟠 **High** — Uses runtime `11.3.x-scala2.12`, which this workspace does not offer · [`resources/orders_etl.job.yml:41`](https://github.com/acme/data-platform/blob/0123abc/resources/orders_etl.job.yml#L41) · details under *Deployment & operations*
 
 ## Review details
 
