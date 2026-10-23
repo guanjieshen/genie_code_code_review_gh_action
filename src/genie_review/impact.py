@@ -75,7 +75,7 @@ def changed_files(repo: Path, base_ref: str) -> dict[str, str]:
 def analyze(repo: Path, base_ref: str, profile: str, target: str | None, bundle_dir: str = ".") -> ImpactResult:
     files = changed_files(repo, base_ref)
     log(f"{len(files)} changed files")
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         base_tree = Path(tmp) / "base"
         sh(["git", "worktree", "add", "--detach", str(base_tree), base_ref], cwd=repo)
         try:

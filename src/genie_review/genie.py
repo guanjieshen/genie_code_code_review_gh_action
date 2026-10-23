@@ -133,7 +133,7 @@ def resolve_route(s: Settings) -> tuple[Route | None, list[str]]:
 
 
 def probe(genie_bin: str, route: Route) -> tuple[bool, str]:
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         home = Path(tmp) / "home"
         write_home(home, route, None)
         try:
@@ -172,7 +172,7 @@ def sanitized_worktree(repo: Path, base_ref: str, dest: Path, bundle_dir: str = 
 
 def run_review(s: Settings, route: Route, prompt: str, schema_path: Path, use_genie_one: bool) -> GenieRun:
     run = GenieRun(route)
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         tmp_p = Path(tmp)
         home = tmp_p / "home"
         write_home(home, route, _client(s.profile).config.host.rstrip("/") if use_genie_one else None)
