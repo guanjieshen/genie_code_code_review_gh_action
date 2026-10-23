@@ -417,6 +417,7 @@ def to_evidence(questions: list[Question], answers: list[Answer]) -> dict[str, A
             continue
         out[f"ev:genie_one:{q.id}"] = {
             "intent": q.intent, "concept": q.concept, "question": q.text, "objects": q.objects,
+            "location": list(q.location),
             "status": a.status, "authoritative": a.authoritative, "conflicting": a.conflicting,
             "answer": a.answer, "citations": [{k: c.get(k, "") for k in ("kind", "ref", "label", "relevant")} for c in a.citations],
             "queries": a.queries[:5], "deep_link": a.deep_link, "error": a.error,
@@ -457,3 +458,66 @@ def summary(questions: list[Question], answers: list[Answer], enabled: bool) -> 
             "asked": len(asked), "authoritative": auth, "unsourced": hyp, "unresolved": unresolved,
             "unavailable": unavailable, "over_budget": skipped, "skipped_rapid": rapid,
             "seconds": round(sum(a.seconds for a in asked), 1)}
+
+
+# ------------------------------------------------------------------ verdicts (deterministic reconciliation)
+
+INTENT_RULE = {
+    "identifier_relationship": "ontology.identifier-relationship",
+    "join_relationship": "ontology.identifier-relationship",
+    "aggregation_grain": "correctness.aggregation-grain",
+    "filter_semantics": "semantic.filter-meaning",
+    "metric_definition": "semantic.metric-definition-drift",
+    "authoritative_source": "semantic.non-authoritative-source",
+}
+
+
+@dataclass
+class Verdict:
+    evidence_id: str
+    verdict: str          # conflict | no_conflict | unclear | unresolved (no verdict returned)
+    reasoning: str = ""
+    file: str = ""
+    line: int = 0
+    finding_title: str = ""
+    finding_added: bool = False   # a conflict with no matching finding was turned into one
+
+
+def reconcile(facts: dict[str, Any], raw: list[dict[str, Any]], findings: list, clean, finding_cls) -> tuple[list[Verdict], list]:
+    """Every answered ontology question gets a verdict. Missing verdicts are 'unresolved'. A 'conflict' with no
+    finding citing that evidence becomes a finding, so a reported conflict cannot be silently dropped.
+
+    Returns (verdicts, new findings). Confidence is still decided by normalize.py from the evidence.
+    """
+    answered = {k: v for k, v in facts.items() if k.startswith("ev:genie_one:") and v.get("status") == "answered"}
+    given = {}
+    for r in raw or []:
+        if r.get("evidence_id") in answered and r.get("verdict") in ("conflict", "no_conflict", "unclear"):
+            given.setdefault(r["evidence_id"], r)
+    cited = {e for f in findings for e in f.evidence}
+    verdicts, added = [], []
+    for ev_id, fact in sorted(answered.items()):
+        r = given.get(ev_id)
+        if not r:
+            verdicts.append(Verdict(ev_id, "unresolved"))
+            continue
+        v = Verdict(ev_id, r["verdict"], clean(r.get("reasoning", ""), 600), r.get("file") or "", int(r.get("line") or 0),
+                    clean(r.get("finding_title", ""), 160))
+        rule = INTENT_RULE.get(fact.get("intent", ""))
+        if v.verdict == "conflict" and ev_id not in cited and rule:
+            loc_file, loc_line = (fact.get("location") or ["", 0])[:2]
+            objs = sorted({f"ev:uc:{'.'.join(o[3:].split('.')[:3])}:metadata" for o in fact.get("objects", [])} & set(facts))
+            added.append(finding_cls(rule, "high", v.file or loc_file, v.line or int(loc_line or 0),
+                                     v.finding_title or fact.get("concept", ""), v.reasoning, [ev_id, *objs],
+                                     "", 0.9, "genie"))
+            v.finding_added = True
+        verdicts.append(v)
+    return verdicts, added
+
+
+def verdict_summary(verdicts: list[Verdict]) -> str:
+    if not verdicts:
+        return ""
+    n = {k: sum(v.verdict == k for v in verdicts) for k in ("conflict", "no_conflict", "unclear", "unresolved")}
+    return (f"verdicts: {n['conflict']} conflict, {n['no_conflict']} no conflict, {n['unclear']} unclear, "
+            f"{n['unresolved']} unresolved")

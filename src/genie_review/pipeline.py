@@ -158,6 +158,10 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                 if s.on_model_unavailable == "fail":
                     return _problem(s, "Genie Code model unavailable", "; ".join(route_notes), [ev.access.gaps[-1].fix], publish_to_github)
                 route_note = "AI review engine: unavailable (no Genie Code model was reachable). Exact checks only."
+                verdicts, _ = ontology.reconcile(ev.facts, [], [], publish.clean, Finding)   # nobody judged the answers
+                vs = ontology.verdict_summary(verdicts)
+                if vs:
+                    genie_one_status = {**genie_one_status, "detail": f"{genie_one_status.get('detail', '')}; {vs}"}
                 if s.on_model_unavailable == "skip":
                     det = []
             else:
@@ -190,6 +194,15 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                     ev.access.genie_one(err)
                 gen, gnotes, summary = publish.genie_findings(gr, plan, set(ev.facts), s.min_confidence)
                 notes += gnotes
+                if answers:  # every answered ontology question gets a verdict; conflicts cannot be dropped
+                    verdicts, added = ontology.reconcile(ev.facts, (gr.output or {}).get("ontology_verdicts", []), gen,
+                                                         publish.clean, Finding)
+                    gen += added
+                    write_json(s.out_dir / "verdicts.json", [v.__dict__ for v in verdicts])
+                    vs = ontology.verdict_summary(verdicts)
+                    if vs:
+                        genie_one_status = {**genie_one_status, "detail": f"{genie_one_status.get('detail', '')}; {vs}",
+                                            "verdicts": [v.__dict__ for v in verdicts]}
                 if gr.output and gr.output.get("injection_attempts"):
                     notes.append(f"{len(gr.output['injection_attempts'])} possible prompt-injection attempt(s) ignored")
                 g1_calls = len(answers) + len(gr.mcp_questions)

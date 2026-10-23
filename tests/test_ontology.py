@@ -204,3 +204,37 @@ def test_json_body_containing_data_colon_is_not_treated_as_an_event_stream(monke
     monkeypatch.setattr(ontology.requests, "post", lambda *a, **k: R())
     out = ontology.GenieOne("https://ws", "t")._rpc("tools/call", {})
     assert out["structuredContent"]["note"] == "metadata: data: here"
+
+
+def _answered(ev_id, auth=True, intent="aggregation_grain"):
+    return {ev_id: {"status": "answered", "authoritative": auth, "intent": intent, "concept": "orders.o_totalprice",
+                    "objects": ["uc:samples.tpch.orders.o_totalprice"], "location": ["src/q.sql", 4], "queries": ["SELECT 1"]}}
+
+
+def test_missing_verdict_is_unresolved_and_conflict_becomes_a_finding():
+    from genie_review.publish import clean
+    facts = {**_answered("ev:genie_one:a"), **_answered("ev:genie_one:b", intent="filter_semantics")}
+    raw = [{"evidence_id": "ev:genie_one:a", "verdict": "conflict", "reasoning": "o_totalprice is per order; summed per line item.",
+            "file": "", "line": 0, "finding_title": "Sums order totals once per line item"},
+           {"evidence_id": "ev:genie_one:unknown", "verdict": "conflict", "reasoning": "x", "file": "", "line": 0, "finding_title": "x"}]
+    verdicts, added = ontology.reconcile(facts, raw, [], clean, Finding)
+    by = {v.evidence_id: v for v in verdicts}
+    assert by["ev:genie_one:b"].verdict == "unresolved"
+    assert "ev:genie_one:unknown" not in by                         # verdicts must refer to answered questions
+    assert len(added) == 1 and added[0].check == "correctness.aggregation-grain"
+    assert (added[0].file, added[0].line) == ("src/q.sql", 4)        # falls back to the question's location
+    normalize(added, facts, Policy())
+    assert added[0].confidence == "high"                            # authoritative answer + its query results
+    assert "verdicts: 1 conflict, 0 no conflict, 0 unclear, 1 unresolved" == ontology.verdict_summary(verdicts)
+
+
+def test_conflict_with_a_matching_finding_is_not_duplicated_and_unsourced_stays_low():
+    from genie_review.publish import clean
+    facts = _answered("ev:genie_one:a", auth=False)
+    existing = Finding("correctness.aggregation-grain", "high", "q.sql", 4, "t", "e", ["ev:genie_one:a"], source="genie")
+    raw = [{"evidence_id": "ev:genie_one:a", "verdict": "conflict", "reasoning": "r", "file": "q.sql", "line": 4, "finding_title": "t"}]
+    _, added = ontology.reconcile(facts, raw, [existing], clean, Finding)
+    assert added == []
+    _, added = ontology.reconcile(facts, raw, [], clean, Finding)
+    normalize(added, facts, Policy())
+    assert added[0].confidence == "low"                             # an unsourced answer cannot create a confident finding
