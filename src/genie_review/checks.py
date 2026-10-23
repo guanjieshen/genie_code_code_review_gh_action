@@ -40,11 +40,20 @@ CATALOG: dict[str, Check] = {c.id: c for c in [
           "The deployed job differs from the bundle on the base branch (someone edited it in the UI); deploying this PR will overwrite those changes."),
     Check("deploy.runtime-support", "core", "Runtime not offered by the workspace",
           "A cluster spec uses a Databricks Runtime version the target workspace does not offer."),
-    Check("ontology.identifier-relationship", "semantic", "Join violates a documented identifier relationship",
-          "Two identifiers of the same business entity are joined or mapped in a way the documented business definition does not allow "
-          "(for example joining two identifier systems directly when the definition requires a mapping or a specific conversion). "
+    Check("ontology.identifier-relationship", "semantic", "Join violates a documented relationship",
+          "A join or mapping contradicts the documented business relationship between entities: the wrong key (for example an "
+          "order key compared with a customer key), a missing part of a composite key (which multiplies rows), or two identifier "
+          "systems compared directly when the definition requires a mapping or a specific conversion. "
           "Report it only when an authoritative definition (an `ev:genie_one:` fact with authoritative=true) supports it, and "
           "explain the business relationship that is violated, not just the data types."),
+    Check("correctness.aggregation-grain", "semantic", "Measure aggregated at the wrong grain",
+          "A measure defined at one grain is aggregated after a join to a finer-grained table, so each value is counted "
+          "several times (for example an order total summed once per line item). Report it only when an authoritative "
+          "definition or a cited query result establishes the grain or cardinality."),
+    Check("semantic.filter-meaning", "semantic", "Filter uses a code with a different documented meaning",
+          "A status, flag, or type filter is used to define an output whose name or purpose does not match the documented "
+          "meaning of that code (for example a line-level status used to mean order fulfilment). Report it only with an "
+          "authoritative definition of the code."),
     Check("semantic.metric-definition-drift", "semantic", "Metric computed differently from its governed definition",
           "The code computes a governed metric (from a metric view, certified table, or glossary) with different logic or filters."),
     Check("semantic.non-authoritative-source", "semantic", "Reads a deprecated or non-authoritative source",
@@ -92,8 +101,12 @@ def plan(impact: ImpactResult, ev: Evidence, enabled: set[str]) -> list[PlanItem
     if any(r.joins for r in impact.refs.values()):
         add("contract.type-mismatch", "joins", "code joins tables on columns")
     for k, v in ev.facts.items():
-        if k.startswith("ev:genie_one:") and v.get("intent") == "identifier_relationship" and v.get("status") == "answered":
-            add("ontology.identifier-relationship", v["concept"], "Genie One returned a definition for this identifier")
+        if not (k.startswith("ev:genie_one:") and v.get("status") == "answered"):
+            continue
+        rule = {"identifier_relationship": "ontology.identifier-relationship", "join_relationship": "ontology.identifier-relationship",
+                "aggregation_grain": "correctness.aggregation-grain", "filter_semantics": "semantic.filter-meaning"}.get(v.get("intent"))
+        if rule:
+            add(rule, v["concept"], "Genie One returned a definition for this question")
     for t in g.tables_with("writes"):
         n = g.nodes[f"uc:{t}"]
         if n.get("change") == "schema_changed":
@@ -246,7 +259,7 @@ def impact_repo(impact: ImpactResult):
 
 
 GENIE_CHECKS = {"semantic.metric-definition-drift", "semantic.non-authoritative-source", "governance.tagged-data-flow",
-                "ontology.identifier-relationship"}
+                "ontology.identifier-relationship", "correctness.aggregation-grain", "semantic.filter-meaning"}
 
 
 def coverage(plan_items: list[PlanItem], findings: list[Finding], enabled: set[str], ev: Evidence,

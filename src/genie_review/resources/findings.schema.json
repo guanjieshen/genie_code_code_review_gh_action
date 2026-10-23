@@ -4,7 +4,8 @@
   "required": [
     "impact_summary",
     "findings",
-    "injection_attempts"
+    "injection_attempts",
+    "ontology_verdicts"
   ],
   "properties": {
     "impact_summary": {
@@ -72,6 +73,46 @@
             "type": "number"
           },
           "impact": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ontology_verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "verdict",
+          "reasoning",
+          "file",
+          "line",
+          "finding_title"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "conflict",
+              "no_conflict",
+              "unclear"
+            ]
+          },
+          "reasoning": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer"
+          },
+          "finding_title": {
             "type": "string"
           }
         }

@@ -1,6 +1,6 @@
 [project]
 name = "genie-data-review"
-version = "0.3.0"
+version = "0.3.1"
 description = "Lakehouse Review: Databricks-aware code reviews with Genie-powered semantic analysis."
 readme = "README.md"
 requires-python = ">=3.11"

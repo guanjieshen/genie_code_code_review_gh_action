@@ -29,6 +29,8 @@ class CodeRefs:
     columns: dict[str, dict[str, int]] = field(default_factory=dict)  # fqn -> {column: line}
     joins: list[dict] = field(default_factory=list)           # {left: (fqn, col), right: (fqn, col), line}
     outputs: dict[str, list[str]] = field(default_factory=dict)  # written fqn -> output column names (SQL CTAS/INSERT SELECT)
+    aggregates: list[dict] = field(default_factory=list)  # {table, column, func, line, joins: [[left, right], ...]}
+    filters: list[dict] = field(default_factory=list)     # {table, column, value, line, outputs: [...]}
     unresolved: list[dict] = field(default_factory=list)
 
     def add_col(self, fqn: str, col: str, line: int) -> None:
@@ -117,6 +119,7 @@ def sql_refs(text: str, params: dict[str, str]) -> CodeRefs:
         for c in stmt.find_all(exp.Column):
             if c.table and c.table in alias:
                 refs.add_col(alias[c.table], c.name, _line_of(text, f"{c.table}.{c.name}"))
+        stmt_joins = []
         for j in stmt.find_all(exp.Join):
             on = j.args.get("on")
             if on is None:
@@ -124,10 +127,25 @@ def sql_refs(text: str, params: dict[str, str]) -> CodeRefs:
             for eq in on.find_all(exp.EQ):
                 l, r = eq.left, eq.right
                 if isinstance(l, exp.Column) and isinstance(r, exp.Column) and l.table in alias and r.table in alias:
-                    refs.joins.append({
-                        "left": [alias[l.table], l.name], "right": [alias[r.table], r.name],
-                        "line": _line_of(text, f"{l.table}.{l.name}", f"{r.table}.{r.name}"),
-                    })
+                    jj = {"left": [alias[l.table], l.name], "right": [alias[r.table], r.name],
+                          "line": _line_of(text, f"{l.table}.{l.name}", f"{r.table}.{r.name}")}
+                    refs.joins.append(jj)
+                    stmt_joins.append([jj["left"], jj["right"]])
+        # aggregates over a table's column, with the joins in the same statement (for grain questions)
+        for agg in stmt.find_all(exp.Sum, exp.Avg):
+            for c in agg.find_all(exp.Column):
+                if c.table in alias:
+                    refs.aggregates.append({"table": alias[c.table], "column": c.name, "func": type(agg).__name__.upper(),
+                                            "line": _line_of(text, f"{c.table}.{c.name}"), "joins": stmt_joins})
+        # equality filters on status/flag/type columns (for filter-meaning questions)
+        outputs = refs.outputs.get(target, []) if target else []
+        for where in stmt.find_all(exp.Where):
+            for eq in where.find_all(exp.EQ):
+                col, lit = (eq.left, eq.right) if isinstance(eq.left, exp.Column) else (eq.right, eq.left)
+                if isinstance(col, exp.Column) and isinstance(lit, exp.Literal) and col.table in alias \
+                        and re.search(r"(status|flag|type|state|code)$", col.name, re.I):
+                    refs.filters.append({"table": alias[col.table], "column": col.name, "value": lit.this,
+                                         "line": _line_of(text, f"{col.table}.{col.name}"), "outputs": outputs})
     return refs
 
 

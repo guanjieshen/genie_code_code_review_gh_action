@@ -23,10 +23,10 @@ The action only reports problems that need a fact from the workspace. It stays s
 |---|---|---|
 | Data contracts & compatibility | Missing table or column, type mismatch in a join, write changes an existing table's schema | `contract.unknown-object`, `contract.column-mismatch`, `contract.type-mismatch`, `contract.write-schema` |
 | Lineage, relationships & ontology | A removed column breaks downstream tables, views, jobs, or dashboards; a join violates a documented identifier relationship | `lineage.downstream-break`, `ontology.identifier-relationship` (Genie One + Genie Code) |
-| Business semantics & metrics | A metric differs from its governed definition; code reads a deprecated dataset | `semantic.metric-definition-drift`, `semantic.non-authoritative-source` (Genie Code) |
+| Business semantics & metrics | A metric differs from its governed definition; code reads a deprecated dataset; a status code is used for the wrong purpose | `semantic.metric-definition-drift`, `semantic.non-authoritative-source`, `semantic.filter-meaning` (Genie Code, Genie One) |
 | Security & governance | Classified (for example PII) columns copied into an unclassified table | `governance.tagged-data-flow` (Genie Code) |
 | Deployment & operations | Unsupported Databricks Runtime; deploy overwrites changes made outside the bundle | `deploy.runtime-support`, `deploy.drift` |
-| Data correctness & quality | Reserved for correctness checks | |
+| Data correctness & quality | A measure summed at the wrong grain (for example an order total counted once per line item) | `correctness.aggregation-grain` (Genie One + Genie Code) |
 
 Each finding has three separate ratings:
 
@@ -97,7 +97,7 @@ jobs:
 ```
 
 > 💡 **Tip**
-> If your organization requires actions pinned to a commit SHA, use `guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.3.0`. All actions used inside this action are pinned by SHA.
+> If your organization requires actions pinned to a commit SHA, use `guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.3.1`. All actions used inside this action are pinned by SHA.
 
 ### 4. Open a pull request
 
@@ -153,13 +153,19 @@ instructions_file: .genie-review/instructions.md
 
 Some business meaning lives outside table metadata: what a metric means, which identifier is canonical for an entity, and how two identifier systems relate. Lakehouse Review decides which of those questions a pull request raises, from what it touches:
 
-| The PR... | Question |
-|---|---|
-| Joins two identifiers of the same entity (for example `customer_id` and `cust_id`) | What is the canonical identifier, and how do these relate? |
-| Writes a metric-like column (revenue, LTV, margin) | What is the governed definition, and which asset is authoritative? |
-| Reads a metric-like table with no certified or deprecated signal | Is this the authoritative source? |
+| The PR... | Question | Check |
+|---|---|---|
+| Newly joins two tables, or joins them on different keys | What is the documented relationship, and which keys must be used (including composite keys)? | `ontology.identifier-relationship` |
+| Joins two identifiers of the same entity (for example `customer_id` and `cust_id`) | What is the canonical identifier, and how do these relate? | `ontology.identifier-relationship` |
+| Sums a measure after joining a finer-grained table on that table's key | At what grain is the measure defined; does this double count? | `correctness.aggregation-grain` |
+| Filters on a status, flag, or type code to define an output | What does the code mean; is it the right column? | `semantic.filter-meaning` |
+| Writes a metric-like column (revenue, LTV, margin) | What is the governed definition, and which asset is authoritative? | `semantic.metric-definition-drift` |
+| Reads a metric-like table with no certified or deprecated signal | Is this the authoritative source? | `semantic.non-authoritative-source` |
 
-Questions that Unity Catalog already answers (a metric view that defines the measure, a certified or deprecated tag) are not sent anywhere. In `detailed` mode, the rest go to **Genie One**, up to a budget (default 4). Answers become evidence with their citations. An answer counts as authoritative only when it cites a governed source (a Unity Catalog Page, a metric view, or a certified dataset); an uncited answer is a hypothesis and cannot create a high-confidence finding on its own. The **Analysis coverage** section shows how many questions were planned, answered by Unity Catalog, asked, answered authoritatively, and left unresolved.
+Questions that Unity Catalog already answers (a metric view that defines the measure, a certified or deprecated tag) are not sent anywhere. In `detailed` mode, the rest go to **Genie One**, up to a budget (default 6), riskiest first. Answers become evidence with their citations. An answer counts as authoritative only when it cites a governed source (a Unity Catalog Page, a metric view, or a certified dataset); an uncited answer is a hypothesis and cannot create a high-confidence finding on its own. Genie Code then gives a **verdict** for every answered question (`conflict`, `no_conflict`, or `unclear`). A missing verdict is reported as unresolved, and a conflict always becomes a finding, so a definition the PR violates cannot be silently dropped. The **Analysis coverage** section shows how many questions were planned, answered by Unity Catalog, asked, answered authoritatively, and how the verdicts came out.
+
+> 💡 **Tip**
+> Ontology checks catch errors that pass every type check, such as joining customers to orders on the order key (both `BIGINT`). See the [TPC-H ontology demo results](docs/ontology-evaluation.md).
 
 ## Model availability
 

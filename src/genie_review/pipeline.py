@@ -21,7 +21,7 @@ from .normalize import Policy, normalize, visible
 from .render import Review
 from .config import Settings
 from .models import Finding
-from .util import group, log, write_json
+from .util import group, log, sh, write_json
 
 
 @dataclass
@@ -102,6 +102,8 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
             ev = evidence.collect(w, imp, warehouse, principal)
         write_json(s.out_dir / "evidence.json", ev.facts)
 
+    notes: list[str] = []
+
     # ---- ontology: plan business questions; answer from Unity Catalog; ask Genie One only in detailed mode
     ontology_on = s.ontology and s.semantic != "off"
     questions, answers = [], []
@@ -122,8 +124,10 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                     ev.access.genie_one(classify(e))
                 answers = ontology.ask(questions, factory, ev.facts)
                 for a in answers:
-                    if a.status in ("error", "unavailable"):
+                    if a.status == "unavailable":          # permission problems are access gaps
                         ev.access.genie_one(a.error)
+                    elif a.status == "error":              # anything else is an unresolved question, noted once
+                        notes.append(f"Genie One question failed: {a.error[:100]}")
                 ev.facts.update(ontology.to_evidence(questions, answers))
             write_json(s.out_dir / "ontology.json", {"questions": [q.to_dict() for q in questions],
                                                      "answers": [a.__dict__ for a in answers]})
@@ -137,7 +141,6 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
     log(f"{len(plan)} planned checks, {len(det)} deterministic findings")
 
     # ---- Genie review (optional; exact checks above always post)
-    notes: list[str] = []
     genie_ran = False
     genie_code_status = "not needed"
     gen: list[Finding] = []
@@ -155,6 +158,10 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                 if s.on_model_unavailable == "fail":
                     return _problem(s, "Genie Code model unavailable", "; ".join(route_notes), [ev.access.gaps[-1].fix], publish_to_github)
                 route_note = "AI review engine: unavailable (no Genie Code model was reachable). Exact checks only."
+                verdicts, _ = ontology.reconcile(ev.facts, [], [], publish.clean, Finding)   # nobody judged the answers
+                vs = ontology.verdict_summary(verdicts)
+                if vs:
+                    genie_one_status = {**genie_one_status, "detail": f"{genie_one_status.get('detail', '')}; {vs}"}
                 if s.on_model_unavailable == "skip":
                     det = []
             else:
@@ -169,8 +176,9 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                         for t, c in (j["left"], j["right"]):
                             referenced.setdefault(t, set()).add(c)
                 facts_for_prompt = ev.facts if s.depth == "detailed" else prompt.compact(ev.facts, referenced)
+                diff = pr_diff(s, limit=40_000 if s.depth == "detailed" else 15_000)
                 try:
-                    text = prompt.compose(s.base_ref, plan, imp.graph.to_dict(), facts_for_prompt, det, s.instructions, use_g1)
+                    text = prompt.compose(s.base_ref, plan, imp.graph.to_dict(), facts_for_prompt, det, s.instructions, use_g1, diff)
                     (s.out_dir / "prompt.md").write_text(text)
                     schema = s.out_dir / "findings.schema.json"
                     schema.write_text(prompt.resource_text("findings.schema.json"))
@@ -187,6 +195,15 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                     ev.access.genie_one(err)
                 gen, gnotes, summary = publish.genie_findings(gr, plan, set(ev.facts), s.min_confidence)
                 notes += gnotes
+                if answers:  # every answered ontology question gets a verdict; conflicts cannot be dropped
+                    verdicts, added = ontology.reconcile(ev.facts, (gr.output or {}).get("ontology_verdicts", []), gen,
+                                                         publish.clean, Finding)
+                    gen += added
+                    write_json(s.out_dir / "verdicts.json", [v.__dict__ for v in verdicts])
+                    vs = ontology.verdict_summary(verdicts)
+                    if vs:
+                        genie_one_status = {**genie_one_status, "detail": f"{genie_one_status.get('detail', '')}; {vs}",
+                                            "verdicts": [v.__dict__ for v in verdicts]}
                 if gr.output and gr.output.get("injection_attempts"):
                     notes.append(f"{len(gr.output['injection_attempts'])} possible prompt-injection attempt(s) ignored")
                 g1_calls = len(answers) + len(gr.mcp_questions)
@@ -214,6 +231,15 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
     if ev.access.gaps:
         print(f"::warning title=Lakehouse Review::The reviewer could not read {len(ev.access.gaps)} thing(s). See the PR comment for the grants to add.")
     return Result(findings, body, route_note, url, publish.should_fail(findings, s.fail_on), notes)
+
+
+def pr_diff(s: Settings, limit: int) -> str:
+    """The PR's diff for the bundle folder, capped. Given to Genie Code so it never has to fetch the code itself."""
+    try:
+        out = sh(["git", "diff", "--unified=3", f"{s.base_ref}...HEAD", "--", s.bundle_dir], cwd=s.repo)
+    except Exception:  # noqa: BLE001
+        return ""
+    return out if len(out) <= limit else out[:limit] + f"\n... diff truncated ({len(out) - limit} more characters); read the files for the rest"
 
 
 def link_context(s: Settings) -> render.LinkContext:

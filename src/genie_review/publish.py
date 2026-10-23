@@ -38,6 +38,7 @@ def clean(text: str, limit: int = 1200) -> str:
 def genie_findings(run: GenieRun, plan: list[PlanItem], evidence_ids: set[str], min_conf: float) -> tuple[list[Finding], list[str], str]:
     if not run.output:
         return [], [], ""
+    run.output.setdefault("ontology_verdicts", [])   # older outputs had no verdicts
     notes: list[str] = []
     try:
         jsonschema.validate(run.output, json.loads(resource_text("findings.schema.json")))
