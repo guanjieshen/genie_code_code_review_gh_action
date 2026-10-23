@@ -32,7 +32,7 @@ def compact(evidence: dict[str, Any], referenced: dict[str, set[str]]) -> dict[s
 
 
 def compose(base_ref: str, plan: list[PlanItem], impact: dict[str, Any], evidence: dict[str, Any],
-            deterministic: list[Finding], instructions: str, genie_one: bool) -> str:
+            deterministic: list[Finding], instructions: str, genie_one: bool, diff: str = "") -> str:
     nonce = secrets.token_hex(6)
 
     def fence(label: str, obj: Any) -> str:
@@ -64,6 +64,7 @@ def compose(base_ref: str, plan: list[PlanItem], impact: dict[str, Any], evidenc
         "IMPACT GRAPH:", fence("impact", impact),
         "EVIDENCE:", fence("evidence", evidence),
         "DETERMINISTIC FINDINGS (already reported):", fence("deterministic", [f.to_dict() for f in deterministic]),
+        *(["PR DIFF (the code under review; read it before judging any check or verdict):", fence("diff", diff)] if diff else []),
         f"Review the pull request now (base: {base_ref}, head: HEAD).",
     ]
     return "\n\n".join(parts)

@@ -21,7 +21,7 @@ from .normalize import Policy, normalize, visible
 from .render import Review
 from .config import Settings
 from .models import Finding
-from .util import group, log, write_json
+from .util import group, log, sh, write_json
 
 
 @dataclass
@@ -176,8 +176,9 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
                         for t, c in (j["left"], j["right"]):
                             referenced.setdefault(t, set()).add(c)
                 facts_for_prompt = ev.facts if s.depth == "detailed" else prompt.compact(ev.facts, referenced)
+                diff = pr_diff(s, limit=40_000 if s.depth == "detailed" else 15_000)
                 try:
-                    text = prompt.compose(s.base_ref, plan, imp.graph.to_dict(), facts_for_prompt, det, s.instructions, use_g1)
+                    text = prompt.compose(s.base_ref, plan, imp.graph.to_dict(), facts_for_prompt, det, s.instructions, use_g1, diff)
                     (s.out_dir / "prompt.md").write_text(text)
                     schema = s.out_dir / "findings.schema.json"
                     schema.write_text(prompt.resource_text("findings.schema.json"))
@@ -230,6 +231,15 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
     if ev.access.gaps:
         print(f"::warning title=Lakehouse Review::The reviewer could not read {len(ev.access.gaps)} thing(s). See the PR comment for the grants to add.")
     return Result(findings, body, route_note, url, publish.should_fail(findings, s.fail_on), notes)
+
+
+def pr_diff(s: Settings, limit: int) -> str:
+    """The PR's diff for the bundle folder, capped. Given to Genie Code so it never has to fetch the code itself."""
+    try:
+        out = sh(["git", "diff", "--unified=3", f"{s.base_ref}...HEAD", "--", s.bundle_dir], cwd=s.repo)
+    except Exception:  # noqa: BLE001
+        return ""
+    return out if len(out) <= limit else out[:limit] + f"\n... diff truncated ({len(out) - limit} more characters); read the files for the rest"
 
 
 def link_context(s: Settings) -> render.LinkContext:
