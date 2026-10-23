@@ -156,7 +156,8 @@ def evidence_block(g: Group, facts: dict[str, Any]) -> str:
 
 
 def one_line(g: Group, ctx: LinkContext) -> str:
-    return f"- {ICON[g.severity]} **{_cap(g.severity)}** — {g.primary.title} · {ctx.link(g.primary.file, g.primary.line)}"
+    return (f"- {ICON[g.severity]} **{_cap(g.severity)}** — {g.primary.title} · {ctx.link(g.primary.file, g.primary.line)}"
+            f" · details under *{CATEGORIES[g.category]}*")
 
 
 # ------------------------------------------------------------------ report

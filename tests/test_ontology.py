@@ -238,3 +238,27 @@ def test_conflict_with_a_matching_finding_is_not_duplicated_and_unsourced_stays_
     _, added = ontology.reconcile(facts, raw, [], clean, Finding)
     normalize(added, facts, Policy())
     assert added[0].confidence == "low"                             # an unsourced answer cannot create a confident finding
+
+
+def test_definition_pages_from_other_domains_do_not_count():
+    cites = [{"kind": "uc_page", "ref": "p", "label": "Net Revenue"}]
+    sql = ["SELECT SUM(x) FROM samples.tpch.lineitem"]
+    assert ontology.assess("ok", cites, {}, "net revenue", ["uc:samples.tpch.t.net_revenue"], sql, "metric_definition")[0] is False
+    schema_page = [{"kind": "uc_page", "ref": "p", "label": "TPC-H Sample Schema"}]
+    assert ontology.assess("ok", schema_page, {}, "net revenue", ["uc:samples.tpch.t.net_revenue"], sql, "metric_definition")[0] is True
+
+
+def test_findings_are_linked_to_the_answer_they_rely_on_and_verdicts_stay_consistent():
+    from genie_review.publish import clean
+    facts = {"ev:genie_one:p": {"status": "answered", "authoritative": True, "intent": "join_relationship", "concept": "lineitem partsupp",
+                                "objects": ["uc:samples.tpch.lineitem.l_partkey", "uc:samples.tpch.partsupp.ps_partkey"],
+                                "location": ["src/m.sql", 9], "queries": ["SELECT 1"]},
+             "ev:uc:samples.tpch.partsupp:metadata": {"exists": True}}
+    f = Finding("ontology.identifier-relationship", "high", "src/m.sql", 9, "Part-only join multiplies supplier rows", "e",
+                ["ev:uc:samples.tpch.partsupp:metadata"], source="genie")
+    raw = [{"evidence_id": "ev:genie_one:p", "verdict": "unclear", "reasoning": "", "file": "", "line": 0, "finding_title": ""}]
+    verdicts, added = ontology.reconcile(facts, raw, [f], clean, Finding)
+    assert "ev:genie_one:p" in f.evidence and added == []
+    assert verdicts[0].verdict == "conflict"                 # the reported finding and the verdict agree
+    normalize([f], facts, Policy())
+    assert f.confidence == "high"

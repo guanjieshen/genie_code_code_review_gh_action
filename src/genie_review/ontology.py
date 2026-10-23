@@ -296,8 +296,11 @@ def _tokens(s: str) -> set[str]:
     return {ALIASES.get(w, w).rstrip("s") for w in words if len(w) > 2}
 
 
+DEFINITION_INTENTS = {"metric_definition", "authoritative_source"}
+
+
 def assess(answer: str, citations: list[dict[str, str]], facts: dict[str, Any], concept: str = "",
-           objects: list[str] | None = None, queries: list[str] | None = None) -> tuple[bool, bool]:
+           objects: list[str] | None = None, queries: list[str] | None = None, intent: str = "") -> tuple[bool, bool]:
     """(authoritative, conflicting).
 
     Authoritative needs a cited governed source that is relevant to the question:
@@ -309,8 +312,11 @@ def assess(answer: str, citations: list[dict[str, str]], facts: dict[str, Any], 
         governed = False
     else:
         schemas = {".".join(o[3:].split(".")[:2]) for o in (objects or [])}
-        # a page is about this question if its title names the concept, or the catalog/schema under review
-        want = _tokens(concept) | {t for sch in schemas for t in _tokens(sch.replace(".", " "))}
+        # a page is about this question if its title names the concept, or the catalog/schema under review.
+        # Definition pages ("Net Revenue") exist in many domains, so for those a title naming the concept is not
+        # enough: the title must name the reviewed schema (or the answer must cite a governed object there).
+        schema_tokens = {t for sch in schemas for t in _tokens(sch.replace(".", " "))}
+        want = schema_tokens if intent in DEFINITION_INTENTS else _tokens(concept) | schema_tokens
         governed = False
         # The API does not return page content, so a page counts only if its title matches the concept AND the
         # same answer ties it to an object in the reviewed schema.
@@ -388,7 +394,7 @@ def _ask_one(q: Question, client: GenieOne | None, facts: dict[str, Any]) -> Ans
     text = ps.get("final_answer") or ""
     cites = citations_in(text)
     queries = [i.get("sql", "") for i in ps.get("query_items") or []]
-    auth, conflict = assess(text, cites, facts, q.concept, q.objects, queries)
+    auth, conflict = assess(text, cites, facts, q.concept, q.objects, queries, q.intent)
     status = "answered" if ps.get("status") == "completed" and text.strip() else "no_answer"
     return Answer(q.id, status, text[:3000], cites, queries, auth, conflict, ps.get("deep_link", ""), ps.get("_seconds", 0.0))
 
@@ -483,6 +489,26 @@ class Verdict:
     finding_added: bool = False   # a conflict with no matching finding was turned into one
 
 
+def link_findings(facts: dict[str, Any], findings: list) -> None:
+    """A Genie finding under an ontology rule that does not cite the answer it relies on is linked to the answered
+    question for the same rule in the same file. (The model sometimes cites only table metadata.)"""
+    rule_of = {k: INTENT_RULE.get(v.get("intent", "")) for k, v in facts.items()
+               if k.startswith("ev:genie_one:") and v.get("status") == "answered"}
+    ontology_rules = set(INTENT_RULE.values())
+    for f in findings:
+        if f.source != "genie" or f.check not in ontology_rules or any(e.startswith("ev:genie_one:") for e in f.evidence):
+            continue
+        for ev_id, rule in rule_of.items():
+            same_file = (facts[ev_id].get("location") or [""])[0] == f.file
+            if same_file and (rule == f.check or _same_objects(facts[ev_id], f)):
+                f.evidence.append(ev_id)
+
+
+def _same_objects(fact: dict[str, Any], f) -> bool:
+    tables = {".".join(o[3:].split(".")[:3]) for o in fact.get("objects", [])}
+    return any(e.startswith("ev:uc:") and e[6:].rsplit(":", 1)[0] in tables for e in f.evidence)
+
+
 def reconcile(facts: dict[str, Any], raw: list[dict[str, Any]], findings: list, clean, finding_cls) -> tuple[list[Verdict], list]:
     """Every answered ontology question gets a verdict. Missing verdicts are 'unresolved'. A 'conflict' with no
     finding citing that evidence becomes a finding, so a reported conflict cannot be silently dropped.
@@ -494,15 +520,19 @@ def reconcile(facts: dict[str, Any], raw: list[dict[str, Any]], findings: list, 
     for r in raw or []:
         if r.get("evidence_id") in answered and r.get("verdict") in ("conflict", "no_conflict", "unclear"):
             given.setdefault(r["evidence_id"], r)
+    link_findings(facts, findings)
     cited = {e for f in findings for e in f.evidence}
     verdicts, added = [], []
     for ev_id, fact in sorted(answered.items()):
         r = given.get(ev_id)
         if not r:
-            verdicts.append(Verdict(ev_id, "unresolved"))
+            verdicts.append(Verdict(ev_id, "conflict" if ev_id in cited else "unresolved",
+                                    "a finding was reported for this definition" if ev_id in cited else ""))
             continue
         v = Verdict(ev_id, r["verdict"], clean(r.get("reasoning", ""), 600), r.get("file") or "", int(r.get("line") or 0),
                     clean(r.get("finding_title", ""), 160))
+        if v.verdict != "conflict" and ev_id in cited:
+            v.verdict, v.reasoning = "conflict", (v.reasoning + " (a finding was reported for this definition)").strip()
         rule = INTENT_RULE.get(fact.get("intent", ""))
         if v.verdict == "conflict" and ev_id not in cited and rule:
             loc_file, loc_line = (fact.get("location") or ["", 0])[:2]
