@@ -21,7 +21,7 @@ Makes the action ready for teams outside Databricks to set up and run on their o
 
 **Added**
 
-- `lakehouse-review setup` prints the least-privilege grants for the reviewer, for every schema the bundle uses, and applies them with `--run`.
+- `lakehouse-review setup` prints the least-privilege grants for the reviewer (`USE CATALOG` and `BROWSE` on each catalog the bundle uses; validated without `SELECT` or `USE SCHEMA`), and applies them with `--run`.
 - `lakehouse-review doctor` checks configuration, sign-in, the bundle, deployment state, the warehouse, Unity Catalog access, the Genie Code model, and Genie One, with a fix for each problem.
 - Outputs `status`, `issues`, `blockers`, and `review-json`, so workflows can branch on the result.
 - `ca-bundle` input for networks that inspect TLS. Proxies work through `HTTPS_PROXY`.

@@ -88,10 +88,7 @@ def build(w: WorkspaceClient | None, principal: str, schemas: set[str], warehous
     for cat in sorted({s.split(".")[0] for s in schemas}):
         stmt = f"GRANT USE CATALOG, BROWSE ON CATALOG `{cat}` TO {q}"
         plan.steps.append(Step(f"Read names, comments, tags, and lineage in catalog `{cat}`", stmt + ";", "sql", sql(stmt)))
-    for sch in sorted(schemas):
-        cat, name = sch.split(".")
-        stmt = f"GRANT USE SCHEMA ON SCHEMA `{cat}`.`{name}` TO {q}"
-        plan.steps.append(Step(f"Query metadata in schema `{sch}`", stmt + ";", "sql", sql(stmt)))
+    # Validated 2026-10-30: USE CATALOG + BROWSE is enough for metadata, tags, and metric views; no USE SCHEMA.
     if not schemas:
         plan.notes.append("No tables were found in the bundle code. Pass `--schema catalog.schema` for each schema it uses.")
 

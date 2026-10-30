@@ -36,8 +36,7 @@ def test_setup_prints_least_privilege_grants_and_changes_nothing():
                                 {"workspace": {"root_path": "/Workspace/Shared/.bundle/app/prod"}}, {"jobs": {"etl": "42"}})
     text = reviewer_setup.render(plan)
     assert f"GRANT USE CATALOG, BROWSE ON CATALOG `main` TO `{SP}`;" in text
-    assert f"GRANT USE SCHEMA ON SCHEMA `main`.`finance` TO `{SP}`;" in text
-    assert "SELECT" not in text and "MODIFY" not in text
+    assert "USE SCHEMA" not in text and "SELECT" not in text and "MODIFY" not in text
     assert "`samples`" not in text.split("Notes:")[0] and "built-in catalog" in text
     assert "permissions update warehouses wh1" in text and "permissions update jobs 42" in text
     assert "permissions update directories 99" in text
@@ -49,7 +48,7 @@ def test_setup_run_applies_and_reports_each_step():
     plan = reviewer_setup.build(w, SP, {"main.sales"}, "wh1", None, {"jobs": {"etl": "42"}})
     results = reviewer_setup.apply(plan)
     assert all(r == "ok" for r in results.values())
-    assert ("sql", f"GRANT USE SCHEMA ON SCHEMA `main`.`sales` TO `{SP}`") in w.calls
+    assert ("sql", f"GRANT USE CATALOG, BROWSE ON CATALOG `main` TO `{SP}`") in w.calls
     assert ("PATCH", "/api/2.0/permissions/jobs/42") in w.calls
     assert ("PATCH", "/api/2.0/permissions/warehouses/wh1") in w.calls
     assert "OK   Use" not in reviewer_setup.render(plan, results)          # manual steps are never "applied"

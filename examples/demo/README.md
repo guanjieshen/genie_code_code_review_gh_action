@@ -24,7 +24,6 @@ Grant the reviewer service principal read access to the demo schema:
 
 ```sql
 GRANT USE CATALOG, BROWSE ON CATALOG <catalog> TO `<reviewer-application-id>`;
-GRANT USE SCHEMA ON SCHEMA <catalog>.genie_review_demo TO `<reviewer-application-id>`;
 ```
 
 ### 4. Commit and push to main

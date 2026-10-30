@@ -41,17 +41,16 @@ uv run --project ../lakehouse-review lakehouse-review setup \
   --profile <admin-profile> --principal <application-id> --target staging
 ```
 
-It reads the bundle, finds every schema the code reads or writes, and prints the grants and permissions to apply. **Nothing is changed by default.** Add `--run` to apply them with your identity, or hand the output to the right team.
+It reads the bundle, finds every catalog the code reads or writes, and prints the grants and permissions to apply. **Nothing is changed by default.** Add `--run` to apply them with your identity, or hand the output to the right team.
 
 | Access | Grant | Used for |
 | --- | --- | --- |
-| Each catalog the code uses | `USE CATALOG`, `BROWSE` | Names, comments, tags, and lineage, without reading data |
-| Each schema the code uses | `USE SCHEMA` | Metadata queries |
+| Each catalog the code uses | `USE CATALOG`, `BROWSE` | Names, columns, comments, tags, metric views, and lineage, without reading data |
 | One SQL warehouse | `CAN_USE` | Tags and metric views |
 | Jobs the bundle deployed | `CAN_VIEW` | Drift between the deployed job and the bundle |
 | The target's `workspace.root_path` | `CAN_READ` | Mapping bundle resources to deployed jobs |
 
-**The reviewer never needs `SELECT`, `MODIFY`, or ownership.** If a schema is missing, pass `--schema catalog.schema` for each one.
+**The reviewer never needs `SELECT`, `USE SCHEMA`, `MODIFY`, or ownership.** This minimum was validated with a service principal on GitHub Actions. If a catalog is missing, pass `--schema catalog.schema` for a schema in it.
 
 > **Note:** Targets in `mode: development` deploy to a per-user folder the reviewer cannot read. Review a target with a shared `root_path`, such as staging or production, to get the drift check.
 
