@@ -127,6 +127,7 @@ Table names built at runtime (for example from a config file) are reported as un
 - **[Security model](docs/security.md)** — How the action handles untrusted pull request content.
 - **[Architecture](docs/architecture.md)** — The pipeline stages and the evidence model.
 - **[Changelog](CHANGELOG.md)** — Changes between releases.
+- **[License](LICENSE)** — Databricks License. Third-party notices are in [NOTICE](NOTICE).
 
 ## Running tests
 

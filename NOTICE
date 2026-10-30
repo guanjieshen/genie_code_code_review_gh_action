@@ -1,4 +1,7 @@
 Lakehouse Review
+Copyright (2026) Databricks, Inc.
+
+This project is licensed under the Databricks License (see LICENSE).
 
 This project downloads and runs the Genie Code CLI (https://github.com/databricks/genie-code-cli)
 at runtime. The Genie Code CLI is licensed separately by Databricks under the Databricks License
