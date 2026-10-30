@@ -30,9 +30,9 @@ class AccessReport:
     def table(self, fqn: str) -> None:
         cat, sch, _ = fqn.split(".")
         self.add(f"Metadata for `{fqn}`", "contract, lineage, and governance checks for this table",
-                 f"`GRANT USE CATALOG ON CATALOG {cat} TO \\`{self.principal}\\`;` and "
-                 f"`GRANT USE SCHEMA, READ METADATA ON SCHEMA {cat}.{sch} TO \\`{self.principal}\\`;` "
-                 f"(or `GRANT BROWSE ON CATALOG {cat}`)")
+                 f"`GRANT USE CATALOG, BROWSE ON CATALOG {cat} TO \\`{self.principal}\\`;` and "
+                 f"`GRANT USE SCHEMA ON SCHEMA {cat}.{sch} TO \\`{self.principal}\\`;` "
+                 f"(`lakehouse-review setup` prints these for every schema the bundle uses)")
 
     def lineage(self, fqn: str) -> None:
         cat = fqn.split(".")[0]

@@ -17,7 +17,7 @@ def test_access_report_writes_grants_for_the_actual_principal():
     r.table("main.sales.orders")
     r.job("42")
     md = r.render()
-    assert f"GRANT USE SCHEMA, READ METADATA ON SCHEMA main.sales TO \\`{SP}\\`" in md
+    assert f"GRANT USE SCHEMA ON SCHEMA main.sales TO \\`{SP}\\`" in md
     assert '"permission_level":"CAN_VIEW"' in md and "jobs 42" in md
 
 

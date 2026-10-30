@@ -369,6 +369,12 @@ class GenieOne:
             raise RuntimeError(out["error"].get("message", "MCP error"))
         return out["result"]
 
+    def tools(self) -> list[str]:
+        """Tool names the server offers. A cheap reachability and permission check (asks nothing)."""
+        if self.sid is None:
+            self._rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "lakehouse-review", "version": "1"}})
+        return [t["name"] for t in self._rpc("tools/list", {}).get("tools", [])]
+
     def ask(self, question: str) -> dict:
         if self.sid is None:
             self._rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "lakehouse-review", "version": "1"}})

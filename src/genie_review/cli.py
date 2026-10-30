@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, config, genie, pipeline
+from . import __version__, config, pipeline
 from .util import log
 
 
@@ -40,9 +40,22 @@ def main(argv: list[str] | None = None) -> int:
     run_p = sub.add_parser("run", help="Review the current branch against its base")
     _common(run_p)
     run_p.add_argument("--no-publish", action="store_true", help="Write results locally only")
-    doc_p = sub.add_parser("doctor", help="Check auth and Genie Code model availability")
+    doc_p = sub.add_parser("doctor", help="Check sign-in, bundle, grants, Genie Code, and Genie One for the reviewer")
     _common(doc_p)
+    set_p = sub.add_parser("setup", help="Print (or with --run, apply) the grants the reviewer service principal needs")
+    set_p.add_argument("--profile", required=True, help="Profile of an admin who can grant access (not the reviewer)")
+    set_p.add_argument("--principal", required=True, help="Application ID of the reviewer service principal")
+    set_p.add_argument("--repo", default=".")
+    set_p.add_argument("--bundle-dir", default=".")
+    set_p.add_argument("--target", help="Bundle target")
+    set_p.add_argument("--warehouse-id")
+    set_p.add_argument("--schema", action="append", help="catalog.schema to grant on (repeatable). Defaults to the schemas the bundle uses")
+    set_p.add_argument("--run", action="store_true", help="Apply the grants and permissions instead of printing them")
     a = ap.parse_args(argv)
+
+    if a.cmd == "setup":
+        from . import reviewer_setup
+        return reviewer_setup.main(a)
 
     inputs = {k: v for k, v in vars(a).items() if k not in ("cmd", "no_publish", "reuse_evidence")}
     try:
@@ -58,11 +71,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if a.cmd == "doctor":
-        route, notes = genie.resolve_route(s)
-        for n in notes:
-            print(f"  - {n}")
-        print(f"Genie Code: {'OK, ' + route.model + ' via ' + route.label if route else 'UNAVAILABLE'}")
-        return 0 if route else 1
+        from . import doctor
+        results = doctor.run(s)
+        print(doctor.render(results))
+        return doctor.exit_code(results)
 
     result = pipeline.run(s, publish_to_github=not a.no_publish, reuse_evidence=a.reuse_evidence)
     print(result.body)
