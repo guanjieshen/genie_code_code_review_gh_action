@@ -9,7 +9,7 @@ from genie_review.access import AccessReport, classify
 from genie_review.evidence import collect
 from genie_review.publish import MARKER, render_problem
 
-SP = "581e0906-2732-4577-a879-1abfd79b7966"
+SP = "00000000-0000-4000-8000-000000000001"
 
 
 def test_access_report_writes_grants_for_the_actual_principal():
@@ -17,7 +17,7 @@ def test_access_report_writes_grants_for_the_actual_principal():
     r.table("main.sales.orders")
     r.job("42")
     md = r.render()
-    assert f"GRANT USE SCHEMA, READ METADATA ON SCHEMA main.sales TO \\`{SP}\\`" in md
+    assert f"GRANT USE CATALOG, BROWSE ON CATALOG main TO \\`{SP}\\`" in md and "USE SCHEMA ON" not in md
     assert '"permission_level":"CAN_VIEW"' in md and "jobs 42" in md
 
 
@@ -61,7 +61,7 @@ def test_sign_in_failure_posts_a_fix_it_comment(repo_with_pr, tmp_path):
 
     result = pipeline.run(s, client_factory=broken, publish_to_github=False)
     assert "Review could not run" in result.body and "Could not sign in to Databricks" in result.body
-    assert "GENIE_REVIEWER_CLIENT_ID" in result.body
+    assert "LAKEHOUSE_REVIEW_CLIENT_ID" in result.body
     assert result.failed is False                   # setup problems do not block by default
 
 

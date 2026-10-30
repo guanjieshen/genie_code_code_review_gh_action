@@ -17,6 +17,8 @@ class ImpactGraph:
     edges: list[dict[str, str]] = field(default_factory=list)
     unresolved: list[dict[str, Any]] = field(default_factory=list)
     job_diff: dict[str, Any] = field(default_factory=dict)
+    deploy_state: str = ""   # deployed | not_deployed | unreadable | unknown (from `bundle summary`)
+    deploy_detail: str = ""
 
     def node(self, node_id: str, kind: str, **attrs: Any) -> dict[str, Any]:
         n = self.nodes.setdefault(node_id, {"id": node_id, "kind": kind})
@@ -41,6 +43,7 @@ class ImpactGraph:
             "edges": self.edges,
             "unresolved": self.unresolved,
             "job_diff": self.job_diff,
+            "deploy_state": self.deploy_state,
         }
 
 

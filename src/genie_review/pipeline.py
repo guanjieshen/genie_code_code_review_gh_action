@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from databricks.sdk import WorkspaceClient
@@ -19,7 +20,7 @@ from .access import classify
 from .correlate import correlate, needs_attention
 from .normalize import Policy, normalize, visible
 from .render import Review
-from .config import Settings
+from .config import ConfigError, Settings
 from .models import Finding
 from .util import group, log, sh, write_json
 
@@ -34,14 +35,18 @@ class Result:
     notes: list[str] = field(default_factory=list)
 
 
-def _publish(s: Settings, body: str, findings: list[Finding], publish_to_github: bool) -> str | None:
+def _publish(s: Settings, body: str, findings: list[Finding], publish_to_github: bool,
+             comment: str | None = None, outputs: dict | None = None) -> str | None:
+    """Write artifacts, then post `comment` (defaults to `body`) and the full `body` as the job summary."""
     (s.out_dir / "review.md").write_text(body)
     write_json(s.out_dir / "findings.json", [f.to_dict() for f in findings])
     if not publish_to_github:
         return None
-    url = publish.post_comment(body)
+    url = publish.post_comment(comment or body)
     publish.step_summary(body)
-    publish.set_outputs(findings=len(findings), critical=sum(f.severity == "critical" for f in findings), comment_url=url or "")
+    publish.set_outputs(findings=len(findings), critical=sum(f.severity == "critical" for f in findings), comment_url=url or "",
+                        review_json=str((s.out_dir / "review.json").resolve()),
+                        **(outputs or {"status": "not_run", "issues": 0, "blockers": 0}))
     return url
 
 
@@ -52,6 +57,26 @@ def _problem(s: Settings, title: str, detail: str, fixes: list[str], publish_to_
     body = render.render_problem(title, detail, fixes)
     url = _publish(s, body, [], publish_to_github)
     return Result([], body, "Reviewer: not run.", url, failed=s.fail_on_error, notes=[detail])
+
+
+def invalid_config(err: ConfigError, out_dir: Path, publish_to_github: bool) -> Result:
+    """Inputs or the config file are invalid: list every problem on the PR and fail the check."""
+    for p in err.problems:
+        print(f"::error title=Lakehouse Review::{p}")
+    in_file = err.source not in ("", "defaults")
+    fixes = ["Fix action inputs in the workflow file that calls the action, then push again."]
+    if in_file:
+        fixes.append(f"Fix `{err.source}` on the base branch. It is read from the base branch so a pull request cannot change "
+                     "how it is reviewed, so the fix must be merged first (or set `config-file` to another file).")
+    body = render.render_problem("The configuration is not valid", "\n".join(f"- {p}" for p in err.problems), fixes, blocking=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "review.md").write_text(body)
+    url = None
+    if publish_to_github:
+        url = publish.post_comment(body)
+        publish.step_summary(body)
+        publish.set_outputs(status="not_run", issues=0, blockers=0, findings=0, critical=0, comment_url=url or "")
+    return Result([], body, "Reviewer: not run.", url, failed=True, notes=err.problems)
 
 
 def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p: WorkspaceClient(profile=p),
@@ -67,7 +92,7 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
         return _problem(s, "Could not sign in to Databricks",
                         f"Signing in with the reviewer identity failed: {classify(e)}.",
                         ["Check that `databricks-host` is the workspace URL and that the client ID and secret "
-                         "(for example `GENIE_REVIEWER_CLIENT_ID` and `GENIE_REVIEWER_CLIENT_SECRET`) belong to the same service principal.",
+                         "(for example `LAKEHOUSE_REVIEW_CLIENT_ID` and `LAKEHOUSE_REVIEW_CLIENT_SECRET`) belong to the same service principal.",
                          "Check that the service principal is added to this workspace and is active.",
                          "If you use OIDC (no secret), add `id-token: write` to the workflow permissions and configure federation for the service principal."],
                         publish_to_github)
@@ -225,9 +250,12 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
         coverage=checks.coverage(plan, findings, enabled, ev, genie_ran),
         capabilities=capabilities.build(imp.graph.to_dict(), ev.facts, findings, ev.gaps, genie_code_status, genie_one_status),
         facts=ev.facts, access_md=ev.access.render(), access_count=len(ev.access.gaps), route_note=route_note, notes=notes)
-    body = render.markdown(review, link_context(s))
+    ctx = link_context(s)
+    body, comment = render.markdown(review, ctx), render.fit_comment(review, ctx)
+    if comment != body:
+        log(f"report is {len(body)} characters; the PR comment was shortened to fit GitHub's limit")
     write_json(s.out_dir / "review.json", render.to_json(review, __version__))
-    url = _publish(s, body, findings, publish_to_github)
+    url = _publish(s, body, findings, publish_to_github, comment, render.outputs(review))
     if ev.access.gaps:
         print(f"::warning title=Lakehouse Review::The reviewer could not read {len(ev.access.gaps)} thing(s). See the PR comment for the grants to add.")
     return Result(findings, body, route_note, url, publish.should_fail(findings, s.fail_on), notes)

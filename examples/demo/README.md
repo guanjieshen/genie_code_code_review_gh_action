@@ -11,9 +11,9 @@ Create a repository from [databricks-github-actions-template](https://github.com
 From the root of your new repository, replace the example job with the demo project:
 
 ```bash
-git clone --depth 1 https://github.com/guanjieshen/genie_code_code_review_gh_action /tmp/genie-data-review
+git clone --depth 1 https://github.com/guanjieshen/genie_code_code_review_gh_action /tmp/lakehouse-review
 rm resources/job.yml src/trips_daily.py
-cp -R /tmp/genie-data-review/examples/demo/project/. .
+cp -R /tmp/lakehouse-review/examples/demo/project/. .
 ```
 
 ### 3. Point it at your workspace
@@ -24,7 +24,6 @@ Grant the reviewer service principal read access to the demo schema:
 
 ```sql
 GRANT USE CATALOG, BROWSE ON CATALOG <catalog> TO `<reviewer-application-id>`;
-GRANT USE SCHEMA ON SCHEMA <catalog>.genie_review_demo TO `<reviewer-application-id>`;
 ```
 
 ### 4. Commit and push to main

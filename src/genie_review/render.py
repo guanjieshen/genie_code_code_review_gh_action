@@ -24,6 +24,9 @@ STATUS = {
 }
 CONFIDENCE_LABEL = {"confirmed": "Confirmed", "high": "High confidence", "medium": "Needs validation", "low": "Low confidence"}
 ACTIONABLE = ("blocker", "action_required")
+COMMENT_LIMIT = 65_536      # GitHub rejects longer issue comments
+SHORTENED = ("<sub>Details were shortened to fit GitHub's comment size limit. "
+             "The full review is in the job summary and in review.json.</sub>")
 
 
 @dataclass
@@ -92,12 +95,23 @@ def not_validated(review: Review) -> str:
     return ""
 
 
-def status(review: Review) -> str:
+def status_key(review: Review) -> str:
+    """Machine-readable status: blocker | action_required | review_recommended | informational | no_issues | no_issues_partial."""
     if not review.groups:
         partial = review.access_count or any(c.status == "Unavailable" for c in review.capabilities) or not_validated(review)
-        return "No issues found in the checks that ran" if partial else "No issues found"
-    top = min((g.merge_impact for g in review.groups), key=["blocker", "action_required", "review_recommended", "informational"].index)
-    return STATUS[top]
+        return "no_issues_partial" if partial else "no_issues"
+    return min((g.merge_impact for g in review.groups), key=list(STATUS).index)
+
+
+def status(review: Review) -> str:
+    key = status_key(review)
+    return {"no_issues": "No issues found", "no_issues_partial": "No issues found in the checks that ran"}.get(key) or STATUS[key]
+
+
+def outputs(review: Review) -> dict[str, Any]:
+    """Action outputs that workflows can branch on."""
+    return {"status": status_key(review), "issues": len(review.groups),
+            "blockers": sum(g.merge_impact == "blocker" for g in review.groups)}
 
 
 def _by_category(groups: list[Group]) -> dict[str, list[Group]]:
@@ -163,7 +177,8 @@ def one_line(g: Group, ctx: LinkContext) -> str:
 # ------------------------------------------------------------------ report
 
 
-def markdown(review: Review, ctx: LinkContext, max_summary_lines: int = 5) -> str:
+def markdown(review: Review, ctx: LinkContext, max_summary_lines: int = 5, compact: bool = False) -> str:
+    """The PR comment. `compact` lists non-priority issues as one line each (used when the full report is too long)."""
     out = [MARKER, "# Lakehouse Review", ""]
     summary = "\n".join([l for l in review.summary.strip().splitlines() if l.strip()][:max_summary_lines])
     out += [summary or "No Databricks resources are affected by this pull request.", ""]
@@ -205,12 +220,18 @@ def markdown(review: Review, ctx: LinkContext, max_summary_lines: int = 5) -> st
             out += ["Nothing requires action before merging. See the recommendations below.", ""]
 
         out += ["## Review details", ""]
+        if compact:
+            out += [SHORTENED, ""]
         for c, gs in by_cat.items():
             top = min((g.severity for g in gs), key=SEVERITIES.index)
             out += [f"<details><summary><b>{CATEGORIES[c]}</b> — {_plural(len(gs), 'issue')} · {_cap(top)}</summary>", ""]
             for g in gs:
-                out += [f"- {ICON[g.severity]} {g.primary.title} (expanded in **Needs attention**)" if g in review.priority
-                        else finding_block(g, ctx, review.facts), ""]
+                if g in review.priority:
+                    out += [f"- {ICON[g.severity]} {g.primary.title} (expanded in **Needs attention**)", ""]
+                elif compact:
+                    out += [f"- {ICON[g.severity]} **{_cap(g.severity)}** — {g.primary.title} · {ctx.link(g.primary.file, g.primary.line)}", ""]
+                else:
+                    out += [finding_block(g, ctx, review.facts), ""]
             out += ["</details>", ""]
 
     out += coverage_section(review)
@@ -218,6 +239,19 @@ def markdown(review: Review, ctx: LinkContext, max_summary_lines: int = 5) -> st
         out += [f"<sub>{review.hidden} low-confidence or filtered observation(s) are not shown. They are in review.json.</sub>", ""]
     out.append(f"<sub>{review.route_note}</sub>")
     return "\n".join(out).rstrip() + "\n"
+
+
+def fit_comment(review: Review, ctx: LinkContext, limit: int = COMMENT_LIMIT - 1_000) -> str:
+    """The longest report that fits in one PR comment: full, then compact, then cut at a line boundary."""
+    body = markdown(review, ctx)
+    if len(body) <= limit:
+        return body
+    body = markdown(review, ctx, compact=True)
+    if len(body) <= limit:
+        return body
+    cut = body[: limit - 500].rsplit("\n", 1)[0]
+    unclosed = cut.count("<details>") - cut.count("</details>")
+    return cut + "\n\n" + "</details>\n" * max(unclosed, 0) + "\n" + SHORTENED + "\n"
 
 
 def coverage_section(review: Review) -> list[str]:
@@ -242,6 +276,8 @@ def to_json(review: Review, version: str) -> dict[str, Any]:
         "schema_version": 2,
         "tool_version": version,
         "status": status(review),
+        "status_key": status_key(review),
+        "blockers": sum(g.merge_impact == "blocker" for g in review.groups),
         "summary": review.summary,
         "issues": len(review.groups),
         "counts": {s: sum(g.severity == s for g in review.groups) for s in SEVERITIES},               # by issue
@@ -256,9 +292,10 @@ def to_json(review: Review, version: str) -> dict[str, Any]:
     }
 
 
-def render_problem(title: str, detail: str, fixes: list[str]) -> str:
+def render_problem(title: str, detail: str, fixes: list[str], blocking: bool = False) -> str:
     out = [MARKER, "# Lakehouse Review", "", "**Review status:** Review could not run", "",
            f"⚠️ **{title}.**", "", detail, "", "**How to fix it**", ""]
     out += [f"{i}. {f}" for i, f in enumerate(fixes, 1)]
-    out += ["", "<sub>This does not block the pull request. Set `fail-on-error: true` to make it fail the check.</sub>"]
+    out += ["", "<sub>The check fails until this is fixed, because the settings that decide when to fail cannot be trusted.</sub>"
+            if blocking else "<sub>This does not block the pull request. Set `fail-on-error: true` to make it fail the check.</sub>"]
     return "\n".join(out) + "\n"

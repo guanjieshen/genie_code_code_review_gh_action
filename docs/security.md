@@ -15,7 +15,13 @@ Lakehouse Review passes untrusted pull request content to an AI agent. The desig
 | Token separation | Genie never receives the GitHub token. Only the publish step uses it. |
 | Events | Runs on `pull_request` only. Fork pull requests are skipped. Do not use `pull_request_target`. |
 
+### Reporting a vulnerability
+
+See [SECURITY.md](../SECURITY.md).
+
 ### Data exposure
+
+See [data and privacy](data-and-privacy.md) for what is sent where. In short:
 
 - Review comments contain table names, column names, and short explanations. In a public repository they are public.
 - Debug artifacts (`upload-artifacts: true`) contain the impact graph, evidence, and prompt. Leave this off in public repositories.

@@ -30,9 +30,8 @@ class AccessReport:
     def table(self, fqn: str) -> None:
         cat, sch, _ = fqn.split(".")
         self.add(f"Metadata for `{fqn}`", "contract, lineage, and governance checks for this table",
-                 f"`GRANT USE CATALOG ON CATALOG {cat} TO \\`{self.principal}\\`;` and "
-                 f"`GRANT USE SCHEMA, READ METADATA ON SCHEMA {cat}.{sch} TO \\`{self.principal}\\`;` "
-                 f"(or `GRANT BROWSE ON CATALOG {cat}`)")
+                 f"`GRANT USE CATALOG, BROWSE ON CATALOG {cat} TO \\`{self.principal}\\`;` "
+                 f"(`lakehouse-review setup` prints this for every catalog the bundle uses)")
 
     def lineage(self, fqn: str) -> None:
         cat = fqn.split(".")[0]
@@ -52,10 +51,11 @@ class AccessReport:
                  f"'{{\"access_control_list\":[{{\"service_principal_name\":\"{self.principal}\",\"permission_level\":\"CAN_USE\"}}]}}'` "
                  f"({err[:100]})")
 
-    def deployed_state(self) -> None:
+    def deployed_state(self, err: str = "") -> None:
         self.add("Bundle deployment state", "`deploy.drift` (deployed job ids)",
-                 "Deploy the target to a shared `workspace.root_path` and give the reviewer `CAN_READ` on that folder. "
-                 "Targets in `mode: development` deploy to a per-user folder the reviewer cannot read.")
+                 "Give the reviewer `CAN_READ` on the target's `workspace.root_path` folder. "
+                 "Targets in `mode: development` deploy to a per-user folder; use a shared `root_path` for the reviewed target."
+                 + (f" ({err[:100]})" if err else ""))
 
     def genie_code(self, notes: list[str]) -> None:
         self.add("Genie Code model", "AI review (semantic and governance findings); exact checks still ran",

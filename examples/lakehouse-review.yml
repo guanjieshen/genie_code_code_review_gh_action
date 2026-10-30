@@ -1,4 +1,4 @@
-# Copy to .github/workflows/genie-data-review.yml in your bundle repository.
+# Copy to .github/workflows/lakehouse-review.yml in your bundle repository.
 name: Lakehouse Review
 
 on:
@@ -10,7 +10,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: genie-data-review-${{ github.event.pull_request.number }}
+  group: lakehouse-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -24,8 +24,9 @@ jobs:
       - uses: guanjieshen/genie_code_code_review_gh_action@v0
         with:
           databricks-host: ${{ vars.DATABRICKS_HOST }}
-          client-id: ${{ vars.GENIE_REVIEWER_CLIENT_ID }}
-          client-secret: ${{ secrets.GENIE_REVIEWER_CLIENT_SECRET }}
+          client-id: ${{ vars.LAKEHOUSE_REVIEW_CLIENT_ID }}
+          client-secret: ${{ secrets.LAKEHOUSE_REVIEW_CLIENT_SECRET }}
           bundle-target: staging
-          # fail-on: critical
+          # analysis-depth: detailed      # also ask Genie One about joins, grain, and codes
+          # fail-on: blocker              # fail the check on blocking issues
           # genie-host: https://other-workspace.cloud.databricks.com   # if the target workspace has no Genie Code model
