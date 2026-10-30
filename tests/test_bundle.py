@@ -38,3 +38,24 @@ def test_diff_detects_added_tasks_and_compute_changes():
 def test_diff_ignores_unchanged_resources():
     b = _bundle([{"task_key": "a"}])
     assert diff_resources(b, b) == {}
+
+
+def test_deployment_state_separates_never_deployed_from_access_denied(monkeypatch, tmp_path):
+    from genie_review import bundle
+    from genie_review.util import CommandError
+
+    monkeypatch.setattr(bundle, "sh", lambda *a, **k: '{"resources": {"jobs": {"etl": {"name": "etl"}}}}')
+    assert bundle.deployed_ids(tmp_path, "p", None) == ({"jobs": {}}, "not_deployed", "")
+    monkeypatch.setattr(bundle, "sh", lambda *a, **k: '{"resources": {"jobs": {"etl": {"id": 42}}}}')
+    assert bundle.deployed_ids(tmp_path, "p", None)[:2] == ({"jobs": {"etl": "42"}}, "deployed")
+
+    def denied(*a, **k):
+        raise CommandError("databricks bundle summary ... failed (1): Error: PERMISSION_DENIED: no access to /Workspace/x")
+    monkeypatch.setattr(bundle, "sh", denied)
+    ids, state, detail = bundle.deployed_ids(tmp_path, "p", None)
+    assert (ids, state) == ({}, "unreadable") and "PERMISSION_DENIED" in detail
+
+    def missing_var(*a, **k):
+        raise CommandError("databricks bundle summary ... failed (1): Error: no value assigned to required variable catalog")
+    monkeypatch.setattr(bundle, "sh", missing_var)
+    assert bundle.deployed_ids(tmp_path, "p", None)[1] == "unknown"

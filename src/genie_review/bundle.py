@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -31,19 +32,27 @@ def resolve(tree: Path, profile: str, target: str | None) -> dict[str, Any]:
     return json.loads(sh(cmd, cwd=tree))
 
 
-def deployed_ids(tree: Path, profile: str, target: str | None) -> dict[str, dict[str, str]]:
-    """Bundle resource key -> deployed id, per resource type. Empty if never deployed."""
+DENIED = re.compile(r"permission|denied|forbidden|not authorized|unauthorized|\b403\b", re.I)
+
+
+def deployed_ids(tree: Path, profile: str, target: str | None) -> tuple[dict[str, dict[str, str]], str, str]:
+    """Bundle resource key -> deployed id, per resource type, plus the deployment state and a detail.
+
+    State is `deployed`, `not_deployed` (summary works but nothing has an id), `unreadable` (the reviewer
+    is not allowed to read the deployment state), or `unknown` (another error, for example a missing variable).
+    """
     cmd = ["databricks", "bundle", "summary", "-o", "json", "-p", profile]
     if target:
         cmd += ["-t", target]
     try:
         data = json.loads(sh(cmd, cwd=tree))
-    except Exception:  # noqa: BLE001 - not deployed yet, or no permission
-        return {}
+    except Exception as e:  # noqa: BLE001
+        msg = str(e).strip().splitlines()[-1][:200] if str(e).strip() else type(e).__name__
+        return {}, ("unreadable" if DENIED.search(str(e)) else "unknown"), msg
     out: dict[str, dict[str, str]] = {}
     for rtype, items in (data.get("resources") or {}).items():
         out[rtype] = {k: str(v["id"]) for k, v in items.items() if isinstance(v, dict) and v.get("id")}
-    return out
+    return out, ("deployed" if any(out.values()) else "not_deployed"), ""
 
 
 def _rel(path: str, files_root: str, tree: Path) -> str:

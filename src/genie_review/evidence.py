@@ -182,9 +182,15 @@ def collect(w: WorkspaceClient, impact: ImpactResult, warehouse: str | None, pri
         for sv in sorted(wanted):
             ev.put(f"ev:workspace:spark_version:{sv}", {"offered_by_workspace": sv in offered, "examples_offered": lts[-5:]})
 
-    # A job that exists on the base branch should already be deployed; if we found no id, we cannot see its state
-    for nid, n in g.nodes.items():
-        if n["kind"] == "job" and not n.get("deployed_id") and nid[4:].split(".", 1)[1] in base_jobs:
-            ev.access.deployed_state()
+    # A job on the base branch with no deployed id: only an access gap if the reviewer was refused the state.
+    # Never deployed (or deployed by another tool) is normal and only skips the drift check.
+    missing = [nid for nid, n in g.nodes.items()
+               if n["kind"] == "job" and not n.get("deployed_id") and nid[4:].split(".", 1)[1] in base_jobs]
+    if missing:
+        if g.deploy_state == "unreadable":
+            ev.access.deployed_state(g.deploy_detail)
+        else:
+            ev.put("ev:bundle:deployment", {"state": g.deploy_state or "unknown", "jobs_without_deployed_id": len(missing),
+                                            "detail": g.deploy_detail or "target not deployed yet; drift check skipped"})
     log(f"{len(ev.facts)} evidence facts, {len(ev.access.gaps)} access gaps")
     return ev

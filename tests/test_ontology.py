@@ -270,3 +270,12 @@ def test_prompt_carries_the_pr_diff_as_fenced_data():
     assert "PR DIFF" in text and "c.c_custkey = o.o_orderkey" in text
     body = text.rsplit("PR DIFF (", 1)[1]
     assert body.count('<data id="') == 1                              # inside one delimited data block
+
+
+def test_page_label_skips_bolded_sentences():
+    from genie_review.ontology import citations_in
+    line = ("**Customer Identity**: the key is c_custkey. **This is important because orders join on it.** "
+            ":citation[knowledge_page.7f6ca599-1422-42d7-a67f-2f4126ff875c]")
+    assert citations_in(line)[0]["label"] == "Customer Identity"
+    only_sentence = "**Revenue is always net of discounts and returns in this model.** :citation[knowledge_page.aaaaaaaa-1111]"
+    assert citations_in(only_sentence)[0]["label"] == ""

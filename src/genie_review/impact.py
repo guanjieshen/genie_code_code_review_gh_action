@@ -129,7 +129,7 @@ def analyze(repo: Path, base_ref: str, profile: str, target: str | None, bundle_
         g.node(f"res:{rid}", d["type"][:-1], change=d["change"], fields_changed=d.get("fields_changed"))
         for tk in d.get("tasks", {}):
             g.edge(f"res:{rid}", f"res:{rid}.{tk}", "contains", "bundle")
-    deployed = bdl.deployed_ids(repo / bundle_dir, profile, target)
+    deployed, g.deploy_state, g.deploy_detail = bdl.deployed_ids(repo / bundle_dir, profile, target)
     for rtype, ids in deployed.items():
         for k, did in ids.items():
             if f"res:{rtype}.{k}" in g.nodes:

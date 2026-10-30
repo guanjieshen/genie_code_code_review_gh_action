@@ -45,7 +45,7 @@ inputs:
     required: false
     default: "false"
   genie-model:
-    description: Override the Genie Code model. Leave empty for Genie Code's default.
+    description: Genie Code model to use. Defaults to `gpt-5.6-sol`. If your workspace does not serve it, set a model it does serve (run `lakehouse-review doctor` to check), or use `genie-host`.
     required: false
     default: ""
   genie-host:

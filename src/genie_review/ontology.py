@@ -262,14 +262,20 @@ BOLD = re.compile(r"\*\*([^*]+)\*\*")
 def citations_in(text: str) -> list[dict[str, str]]:
     """All citations in a Genie One answer: Markdown links plus `:citation[knowledge_page.<id>]` tokens.
 
-    Page tokens carry no title, so the label is the nearest bold text earlier on the same line.
+    Page tokens carry no title, so the label is the nearest short bold phrase earlier on the same line
+    (a bolded sentence is emphasis, not a title, and is skipped).
     """
     out = [classify_citation(l, u) for l, u in LINK.findall(text)]
     for line in text.splitlines():
         for m in PAGE_TOKEN.finditer(line):
-            titles = BOLD.findall(line[: m.start()])
+            titles = [b.strip().rstrip(":") for b in BOLD.findall(line[: m.start()]) if _looks_like_title(b)]
             out.append({"kind": "uc_page", "ref": f"knowledge_page.{m.group(1)}", "url": "", "label": titles[-1] if titles else ""})
     return out
+
+
+def _looks_like_title(text: str) -> bool:
+    t = text.strip().rstrip(":")
+    return 0 < len(t) <= 60 and len(t.split()) <= 8 and not t.endswith((".", "!", "?"))
 
 
 def classify_citation(label: str, url: str) -> dict[str, str]:

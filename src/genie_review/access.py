@@ -52,10 +52,11 @@ class AccessReport:
                  f"'{{\"access_control_list\":[{{\"service_principal_name\":\"{self.principal}\",\"permission_level\":\"CAN_USE\"}}]}}'` "
                  f"({err[:100]})")
 
-    def deployed_state(self) -> None:
+    def deployed_state(self, err: str = "") -> None:
         self.add("Bundle deployment state", "`deploy.drift` (deployed job ids)",
-                 "Deploy the target to a shared `workspace.root_path` and give the reviewer `CAN_READ` on that folder. "
-                 "Targets in `mode: development` deploy to a per-user folder the reviewer cannot read.")
+                 "Give the reviewer `CAN_READ` on the target's `workspace.root_path` folder. "
+                 "Targets in `mode: development` deploy to a per-user folder; use a shared `root_path` for the reviewed target."
+                 + (f" ({err[:100]})" if err else ""))
 
     def genie_code(self, notes: list[str]) -> None:
         self.add("Genie Code model", "AI review (semantic and governance findings); exact checks still ran",
