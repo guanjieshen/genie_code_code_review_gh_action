@@ -26,7 +26,6 @@ Makes the action ready for teams outside Databricks to set up and run on their o
 - Outputs `status`, `issues`, `blockers`, and `review-json`, so workflows can branch on the result.
 - `ca-bundle` input for networks that inspect TLS. Proxies work through `HTTPS_PROXY`.
 - Inputs are validated before anything is installed.
-- A self-contained TPC-H ontology demo with Page content (`examples/tpch-ontology/`).
 - Docs: inputs, troubleshooting, data and privacy, costs, and ontology validation.
 
 **Fixed**

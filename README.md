@@ -80,7 +80,7 @@ The review is **advisory by default**. Set `fail-on: blocker` once you trust the
 | You want to… | Where to make the change |
 | --- | --- |
 | Fail the check on blocking issues | `fail-on` input, or `fail_on` in `.lakehouse-review/config.yml` |
-| Check joins, grain, and codes against your business definitions | `analysis-depth: detailed`, and write Pages for your entities ([docs/ontology.md](docs/ontology.md)) |
+| Check joins, grain, and codes against your business definitions | `analysis-depth: detailed`; it uses the Pages and metric views you already have ([docs/ontology.md](docs/ontology.md)) |
 | Give the reviewer team context, such as which catalog is production | `.lakehouse-review/instructions.md` |
 | Turn a check off or change its severity | `checks` in `.lakehouse-review/config.yml` |
 | Review a bundle in a subfolder of a monorepo | `bundle-dir` input, one job per bundle |
@@ -110,7 +110,7 @@ Table names built at runtime (for example from a config file) are reported as un
 | `action.yml` | The composite action: input validation, tool setup, the review step, and failure reporting. |
 | `src/genie_review/` | The review engine. `pipeline.py` runs the stages; `checks.py` holds the check catalog. |
 | `src/genie_review/resources/` | The reviewer charter and the JSON schema Genie Code must answer in. |
-| `examples/` | A workflow and config file to copy, and two demos with planted issues: `demo/` (orders) and `tpch-ontology/`. |
+| `examples/` | A workflow and config file to copy, and an end-to-end demo with planted issues. |
 | `tests/` | Unit tests, including a 12-finding regression fixture for the report layout. |
 | `scripts/` | The Genie Code CLI installer and the live integration test (`.github/workflows/integration.yml`). |
 | `docs/` | Setup, inputs, configuration, architecture, security, and operations guides. |

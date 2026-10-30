@@ -32,7 +32,7 @@ ID_COLUMN = re.compile(r"^(?P<stem>[a-z][a-z0-9]*?)_?(id|key|number|no|code)$", 
 MEASURE = re.compile(r"(revenue|sales|margin|profit|ltv|churn|arr|mrr|gmv|bookings)", re.I)   # business metrics
 INTENT_RANK = {"identifier_relationship": 0, "join_relationship": 0, "aggregation_grain": 0, "filter_semantics": 0,
                "metric_definition": 1, "authoritative_source": 2}
-TABLE_PREFIX = re.compile(r"^[a-z]{1,2}_(?=[a-z]+(id|key|number|no|code)$)", re.I)   # TPC-H style: c_custkey, ps_partkey
+TABLE_PREFIX = re.compile(r"^[a-z]{1,2}_(?=[a-z]+(id|key|number|no|code)$)", re.I)   # prefixed keys: c_custkey, ps_partkey
 ALIASES = {"cust": "customer", "acct": "account", "prod": "product", "emp": "employee", "ord": "order", "sku": "product"}
 
 
@@ -82,7 +82,7 @@ def entity_of(column: str) -> str | None:
 
 
 def table_entity(fqn: str) -> str:
-    """Business entity a table holds one row of: `samples.tpch.orders` -> order, `gold_customers` -> customer."""
+    """Business entity a table holds one row of: `main.sales.orders` -> order, `gold_customers` -> customer."""
     name = re.sub(r"^(gold|silver|bronze|dim|fact|fct)_", "", _short(fqn).lower())
     name = name[:-1] if name.endswith("s") and not name.endswith("ss") else name
     return ALIASES.get(name, name)
@@ -298,7 +298,7 @@ DISCLAIMER = re.compile(  # the answer says the available definitions do not cov
 
 
 def _tokens(s: str) -> set[str]:
-    words = re.findall(r"[a-z]+", s.lower().replace("-", ""))   # "TPC-H" -> "tpch"
+    words = re.findall(r"[a-z]+", s.lower().replace("-", ""))   # "Sell-in" -> "sellin"
     return {ALIASES.get(w, w).rstrip("s") for w in words if len(w) > 2}
 
 

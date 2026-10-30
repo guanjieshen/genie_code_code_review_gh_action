@@ -1,11 +1,11 @@
-"""Live integration test: review the TPC-H demo pull request against a real workspace.
+"""Live integration test: review the demo pull request against a real workspace.
 
-Builds a throwaway git repository from examples/tpch-ontology (base commit, then the demo PR commit),
+Builds a throwaway git repository from examples/demo/project (base commit, then the demo PR commit),
 runs `lakehouse-review run --no-publish`, and checks review.json. Needs a Databricks CLI profile for the
-reviewer, the Databricks CLI, and the Genie Code CLI.
+reviewer, the Databricks CLI, and the Genie Code CLI, and a workspace where `demo/setup.py` has run.
 
     uv run python scripts/integration_test.py --profile <reviewer> --depth rapid
-    uv run python scripts/integration_test.py --profile <reviewer> --depth detailed --min-issues 3
+    uv run python scripts/integration_test.py --profile <reviewer> --depth detailed --min-issues 5
 """
 
 from __future__ import annotations
@@ -21,8 +21,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEMO = ROOT / "examples/tpch-ontology"
-ONTOLOGY_CHECKS = {"ontology.identifier-relationship", "correctness.aggregation-grain", "semantic.filter-meaning"}
+DEMO = ROOT / "examples/demo/project"
 
 
 def git(repo: Path, *args: str) -> None:
@@ -31,7 +30,7 @@ def git(repo: Path, *args: str) -> None:
 
 
 def build_repo(dest: Path, catalog: str, schema: str, warehouse_id: str) -> None:
-    shutil.copytree(DEMO, dest, ignore=shutil.ignore_patterns("pr", "EXPECTED.md", "README.md", "create_demo_pr.sh", "pages"))
+    shutil.copytree(DEMO, dest, ignore=shutil.ignore_patterns("demo"))
     yml = dest / "databricks.yml"
     text = yml.read_text()
     for var, value in (("catalog", catalog), ("schema", schema), ("warehouse_id", warehouse_id)):
@@ -41,9 +40,9 @@ def build_repo(dest: Path, catalog: str, schema: str, warehouse_id: str) -> None
     git(dest, "add", "-A")
     git(dest, "commit", "-qm", "base")
     git(dest, "checkout", "-qb", "demo")
-    shutil.copytree(DEMO / "pr", dest, dirs_exist_ok=True)
+    shutil.copytree(DEMO / "demo/pr", dest, dirs_exist_ok=True)
     git(dest, "add", "-A")
-    git(dest, "commit", "-qm", "Add fulfilled order revenue and supplier margin")
+    git(dest, "commit", "-qm", "Demo pull request with planted issues")
 
 
 def main() -> int:
@@ -51,7 +50,7 @@ def main() -> int:
     ap.add_argument("--profile", required=True)
     ap.add_argument("--depth", choices=["rapid", "detailed"], default="rapid")
     ap.add_argument("--catalog", default="main")
-    ap.add_argument("--schema", default="lakehouse_review_demo")
+    ap.add_argument("--schema", default="genie_review_demo")
     ap.add_argument("--warehouse-id", default="")
     ap.add_argument("--genie-bin", default="genie")
     ap.add_argument("--min-issues", type=int, default=0, help="Fail if the review reports fewer issues")
@@ -84,8 +83,10 @@ def main() -> int:
         problems.append("review did not run")
     if review and (review.get("issues") or 0) < a.min_issues:
         problems.append(f"expected at least {a.min_issues} issues, got {review.get('issues')}")
-    if a.depth == "detailed" and review and not (ONTOLOGY_CHECKS & set(checks)):
-        problems.append("detailed review produced no ontology findings")
+    # Detailed mode must ask Genie One. Ontology findings depend on the workspace's own Pages, so they are not required.
+    g1 = next((c for c in review.get("capabilities", []) if c.get("name", "").startswith("Genie One")), {})
+    if a.depth == "detailed" and review and g1.get("status") != "Ran":
+        problems.append(f"detailed review did not ask Genie One ({g1.get('status')}: {g1.get('detail')})")
 
     if a.keep or problems:
         print(f"kept: {tmp}")

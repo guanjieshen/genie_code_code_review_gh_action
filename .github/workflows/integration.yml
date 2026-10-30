@@ -1,10 +1,10 @@
 name: Integration
 
-# Reviews the TPC-H demo pull request against a real workspace as a service principal.
+# Reviews the demo pull request (examples/demo) against a real workspace as a service principal.
 # Run it before every release. Needs, in the "integration" environment:
 #   variables IT_DATABRICKS_HOST, IT_CLIENT_ID, IT_CATALOG, IT_SCHEMA, IT_WAREHOUSE_ID
 #   secret    IT_CLIENT_SECRET
-# The reviewer must be able to open the three Pages in examples/tpch-ontology/pages/.
+# Run examples/demo/project/demo/setup.py in that workspace once, and grant the reviewer access (lakehouse-review setup).
 
 on:
   workflow_dispatch:
@@ -28,9 +28,9 @@ jobs:
       matrix:
         include:
           - depth: rapid
-            min-issues: 0
+            min-issues: 5
           - depth: detailed
-            min-issues: 3
+            min-issues: 5
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
