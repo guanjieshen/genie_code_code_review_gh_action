@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from . import __version__, config, genie, pipeline
 from .util import log
@@ -44,7 +45,17 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
 
     inputs = {k: v for k, v in vars(a).items() if k not in ("cmd", "no_publish", "reuse_evidence")}
-    s = config.load(inputs)
+    try:
+        s = config.load(inputs)
+    except config.ConfigError as e:
+        if a.cmd == "doctor":
+            print("Configuration: INVALID")
+            for p in e.problems:
+                print(f"  - {p}")
+            return 1
+        result = pipeline.invalid_config(e, Path(a.out_dir).resolve(), publish_to_github=not a.no_publish)
+        print(result.body)
+        return 1
 
     if a.cmd == "doctor":
         route, notes = genie.resolve_route(s)

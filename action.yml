@@ -76,6 +76,10 @@ inputs:
     description: Python package index to install dependencies from, for runners that cannot reach pypi.org (for example an Artifactory or Nexus mirror). Packages are hash-pinned, so a mirror cannot substitute them.
     required: false
     default: ""
+  ca-bundle:
+    description: Path to a PEM file with extra trusted certificates, for networks that inspect TLS. Relative paths are resolved from the repo root. Applied to every tool the action runs.
+    required: false
+    default: ""
   genie-version:
     description: Genie Code CLI release to install.
     required: false
@@ -131,6 +135,65 @@ runs:
           echo "run=false" >> "$GITHUB_OUTPUT"
         else
           echo "run=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: "Initialize: validate inputs"
+      if: steps.guard.outputs.run == 'true'
+      shell: bash
+      env:
+        HOST: ${{ inputs.databricks-host }}
+        CLIENT_ID: ${{ inputs.client-id }}
+        GENIE_HOST: ${{ inputs.genie-host }}
+        BUNDLE_DIR: ${{ inputs.bundle-dir }}
+        DEPTH: ${{ inputs.analysis-depth }}
+        SEMANTIC: ${{ inputs.semantic }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+        ON_MODEL_UNAVAILABLE: ${{ inputs.on-model-unavailable }}
+        UPLOAD: ${{ inputs.upload-artifacts }}
+        PY_INDEX: ${{ inputs.python-index-url }}
+        GENIE_VERSION: ${{ inputs.genie-version }}
+        CA_BUNDLE: ${{ inputs.ca-bundle }}
+      run: |
+        set -o pipefail
+        errors=()
+        bad() { errors+=("$1"); echo "::error title=Lakehouse Review::$1"; }
+        one_of() { local name="$1" value="$2"; shift 2
+          [[ -z "$value" ]] && return 0
+          for ok in "$@"; do [[ "$value" == "$ok" ]] && return 0; done
+          bad "\`$name\` must be one of: $*. Got \`$value\`."; }
+        https() { [[ -z "$2" || "$2" =~ ^https://[^/[:space:]]+(/[^[:space:]]*)?$ ]] || bad "\`$1\` must be an https:// URL. Got \`$2\`."; }
+
+        [[ -n "$HOST" ]] || bad "\`databricks-host\` is required."
+        https databricks-host "$HOST"
+        https genie-host "$GENIE_HOST"
+        https python-index-url "$PY_INDEX"
+        [[ -n "$CLIENT_ID" ]] || bad "\`client-id\` is required (the reviewer service principal's application ID)."
+        one_of analysis-depth "$DEPTH" rapid detailed
+        one_of fail-on "$FAIL_ON" none blocker critical high medium
+        one_of fail-on-error "$FAIL_ON_ERROR" true false
+        one_of on-model-unavailable "$ON_MODEL_UNAVAILABLE" deterministic skip fail
+        one_of upload-artifacts "$UPLOAD" true false
+        [[ -z "$SEMANTIC" || "$SEMANTIC" == genie-one || "$SEMANTIC" == off ]] || bad "\`semantic\` must be \`genie-one\` or \`off\`. Got \`$SEMANTIC\`."
+        [[ "$GENIE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || bad "\`genie-version\` must be a release tag such as \`v0.2.0\`. Got \`$GENIE_VERSION\`."
+        if [[ "$BUNDLE_DIR" == /* || "/$BUNDLE_DIR/" == */../* ]]; then
+          bad "\`bundle-dir\` must be a folder inside the repository, relative to its root. Got \`$BUNDLE_DIR\`."
+        elif [[ ! -f "$GITHUB_WORKSPACE/${BUNDLE_DIR:-.}/databricks.yml" && ! -f "$GITHUB_WORKSPACE/${BUNDLE_DIR:-.}/databricks.yaml" ]]; then
+          bad "No databricks.yml in \`${BUNDLE_DIR:-.}\`. Check out the repository first (actions/checkout with fetch-depth: 0) and set \`bundle-dir\` to the bundle folder."
+        fi
+        if [[ -n "$CA_BUNDLE" ]]; then
+          ca="$CA_BUNDLE"; [[ "$ca" == /* ]] || ca="$GITHUB_WORKSPACE/$ca"
+          if [[ -r "$ca" ]] && grep -q "BEGIN CERTIFICATE" "$ca"; then
+            for v in SSL_CERT_FILE REQUESTS_CA_BUNDLE CURL_CA_BUNDLE GENIE_CA_CERTIFICATE NODE_EXTRA_CA_CERTS; do echo "$v=$ca" >> "$GITHUB_ENV"; done
+          else
+            bad "\`ca-bundle\` must point to a readable PEM file with at least one certificate. Got \`$CA_BUNDLE\`."
+          fi
+        fi
+
+        if (( ${#errors[@]} )); then
+          { echo "**Some action inputs are not valid.**"; echo; printf -- '- %s\n' "${errors[@]}"; echo
+            echo "Fix them in the workflow file that calls the action, then push again."; } > "$RUNNER_TEMP/lakehouse-review-setup-error.md"
+          exit 1
         fi
 
     - name: "Initialize: set up uv"
@@ -278,7 +341,12 @@ runs:
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         marker='<!-- genie-data-review -->'
-        body=$(printf '%s\n# Lakehouse Review\n\n⚠️ **The review could not start on this runner.**\n\nCommon causes:\n\n1. The runner cannot reach pypi.org. Set `python-index-url` to your package mirror.\n2. The runner cannot reach github.com to download the Genie Code CLI.\n3. The runner cannot reach the Databricks workspace.\n\nSee the [job log](%s) for the failing step.\n\n<sub>This does not block the pull request unless the check is required.</sub>' "$marker" "$RUN_URL")
+        detail="$RUNNER_TEMP/lakehouse-review-setup-error.md"
+        if [[ -f "$detail" ]]; then
+          body=$(printf '%s\n# Lakehouse Review\n\n**Review status:** Review could not run\n\n%s\n\nSee the [job log](%s) for details.' "$marker" "$(cat "$detail")" "$RUN_URL")
+        else
+          body=$(printf '%s\n# Lakehouse Review\n\n**Review status:** Review could not run\n\n⚠️ **The review could not start on this runner.**\n\nCommon causes:\n\n1. The runner cannot reach pypi.org. Set `python-index-url` to your package mirror.\n2. The runner cannot reach github.com to download the Genie Code CLI.\n3. The runner cannot reach the Databricks workspace. If a proxy is required, set `HTTPS_PROXY` on the job; if it inspects TLS, set `ca-bundle`.\n\nSee the [job log](%s) for the failing step.\n\n<sub>This does not block the pull request unless the check is required.</sub>' "$marker" "$RUN_URL")
+        fi
         api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/${PR}/comments"
         auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json")
         existing=$(curl -fsSL "${auth[@]}" "${api}?per_page=100" | jq -r --arg m "$marker" '[.[] | select(.body | contains($m))][0].url // empty')

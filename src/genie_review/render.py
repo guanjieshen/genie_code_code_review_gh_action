@@ -292,9 +292,10 @@ def to_json(review: Review, version: str) -> dict[str, Any]:
     }
 
 
-def render_problem(title: str, detail: str, fixes: list[str]) -> str:
+def render_problem(title: str, detail: str, fixes: list[str], blocking: bool = False) -> str:
     out = [MARKER, "# Lakehouse Review", "", "**Review status:** Review could not run", "",
            f"⚠️ **{title}.**", "", detail, "", "**How to fix it**", ""]
     out += [f"{i}. {f}" for i, f in enumerate(fixes, 1)]
-    out += ["", "<sub>This does not block the pull request. Set `fail-on-error: true` to make it fail the check.</sub>"]
+    out += ["", "<sub>The check fails until this is fixed, because the settings that decide when to fail cannot be trusted.</sub>"
+            if blocking else "<sub>This does not block the pull request. Set `fail-on-error: true` to make it fail the check.</sub>"]
     return "\n".join(out) + "\n"

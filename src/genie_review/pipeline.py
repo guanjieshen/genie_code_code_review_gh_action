@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from databricks.sdk import WorkspaceClient
@@ -19,7 +20,7 @@ from .access import classify
 from .correlate import correlate, needs_attention
 from .normalize import Policy, normalize, visible
 from .render import Review
-from .config import Settings
+from .config import ConfigError, Settings
 from .models import Finding
 from .util import group, log, sh, write_json
 
@@ -56,6 +57,26 @@ def _problem(s: Settings, title: str, detail: str, fixes: list[str], publish_to_
     body = render.render_problem(title, detail, fixes)
     url = _publish(s, body, [], publish_to_github)
     return Result([], body, "Reviewer: not run.", url, failed=s.fail_on_error, notes=[detail])
+
+
+def invalid_config(err: ConfigError, out_dir: Path, publish_to_github: bool) -> Result:
+    """Inputs or the config file are invalid: list every problem on the PR and fail the check."""
+    for p in err.problems:
+        print(f"::error title=Lakehouse Review::{p}")
+    in_file = err.source not in ("", "defaults")
+    fixes = ["Fix action inputs in the workflow file that calls the action, then push again."]
+    if in_file:
+        fixes.append(f"Fix `{err.source}` on the base branch. It is read from the base branch so a pull request cannot change "
+                     "how it is reviewed, so the fix must be merged first (or set `config-file` to another file).")
+    body = render.render_problem("The configuration is not valid", "\n".join(f"- {p}" for p in err.problems), fixes, blocking=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "review.md").write_text(body)
+    url = None
+    if publish_to_github:
+        url = publish.post_comment(body)
+        publish.step_summary(body)
+        publish.set_outputs(status="not_run", issues=0, blockers=0, findings=0, critical=0, comment_url=url or "")
+    return Result([], body, "Reviewer: not run.", url, failed=True, notes=err.problems)
 
 
 def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p: WorkspaceClient(profile=p),
