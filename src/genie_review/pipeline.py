@@ -34,14 +34,18 @@ class Result:
     notes: list[str] = field(default_factory=list)
 
 
-def _publish(s: Settings, body: str, findings: list[Finding], publish_to_github: bool) -> str | None:
+def _publish(s: Settings, body: str, findings: list[Finding], publish_to_github: bool,
+             comment: str | None = None, outputs: dict | None = None) -> str | None:
+    """Write artifacts, then post `comment` (defaults to `body`) and the full `body` as the job summary."""
     (s.out_dir / "review.md").write_text(body)
     write_json(s.out_dir / "findings.json", [f.to_dict() for f in findings])
     if not publish_to_github:
         return None
-    url = publish.post_comment(body)
+    url = publish.post_comment(comment or body)
     publish.step_summary(body)
-    publish.set_outputs(findings=len(findings), critical=sum(f.severity == "critical" for f in findings), comment_url=url or "")
+    publish.set_outputs(findings=len(findings), critical=sum(f.severity == "critical" for f in findings), comment_url=url or "",
+                        review_json=str((s.out_dir / "review.json").resolve()),
+                        **(outputs or {"status": "not_run", "issues": 0, "blockers": 0}))
     return url
 
 
@@ -225,9 +229,12 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
         coverage=checks.coverage(plan, findings, enabled, ev, genie_ran),
         capabilities=capabilities.build(imp.graph.to_dict(), ev.facts, findings, ev.gaps, genie_code_status, genie_one_status),
         facts=ev.facts, access_md=ev.access.render(), access_count=len(ev.access.gaps), route_note=route_note, notes=notes)
-    body = render.markdown(review, link_context(s))
+    ctx = link_context(s)
+    body, comment = render.markdown(review, ctx), render.fit_comment(review, ctx)
+    if comment != body:
+        log(f"report is {len(body)} characters; the PR comment was shortened to fit GitHub's limit")
     write_json(s.out_dir / "review.json", render.to_json(review, __version__))
-    url = _publish(s, body, findings, publish_to_github)
+    url = _publish(s, body, findings, publish_to_github, comment, render.outputs(review))
     if ev.access.gaps:
         print(f"::warning title=Lakehouse Review::The reviewer could not read {len(ev.access.gaps)} thing(s). See the PR comment for the grants to add.")
     return Result(findings, body, route_note, url, publish.should_fail(findings, s.fail_on), notes)

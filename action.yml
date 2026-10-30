@@ -90,6 +90,18 @@ inputs:
     default: ${{ github.token }}
 
 outputs:
+  status:
+    description: "Review result: blocker, action_required, review_recommended, informational, no_issues, no_issues_partial, or not_run (setup problem)."
+    value: ${{ steps.review.outputs.status }}
+  issues:
+    description: Number of issues shown in the review (related findings are grouped into one issue).
+    value: ${{ steps.review.outputs.issues }}
+  blockers:
+    description: Number of issues rated as blocking the merge.
+    value: ${{ steps.review.outputs.blockers }}
+  review-json:
+    description: Path to review.json on the runner (the full structured review).
+    value: ${{ steps.review.outputs.review_json }}
   findings:
     description: Number of findings posted.
     value: ${{ steps.review.outputs.findings }}
