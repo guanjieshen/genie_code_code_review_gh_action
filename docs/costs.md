@@ -52,4 +52,4 @@ jobs:
 
 **Use `rapid` for every push.** It runs every exact check (contracts, lineage, deployment) and one Genie Code review.
 
-**Use `detailed` for changes to joins, aggregations, filters, or metrics**, or before merging to production. It is the only depth that checks the change against your business definitions, which catches errors that pass every type check. See the [ontology evaluation](ontology-evaluation.md).
+**Use `detailed` for changes to joins, aggregations, filters, or metrics**, or before merging to production. It is the only depth that checks the change against your business definitions, which catches errors that pass every type check.

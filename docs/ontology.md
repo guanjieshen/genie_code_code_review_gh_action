@@ -1,8 +1,10 @@
 # Ontology validation
 
-Some business meaning lives outside table metadata: what a metric means, which identifier is canonical for an entity, and how two tables relate. With `analysis-depth: detailed`, Lakehouse Review checks a pull request against those definitions by asking **Genie One**, which reads your Unity Catalog Pages, metric views, and certified datasets.
+Some business meaning lives outside table metadata: what a metric means, which identifier is canonical for an entity, and how two tables relate. With `analysis-depth: detailed`, Lakehouse Review checks a pull request against **the definitions your workspace already has**, by asking **Genie One**. Genie One reads your Unity Catalog Pages, metric views, and certified datasets.
 
-> **Why it matters:** these checks catch errors that pass every type check, such as joining customers to orders on the order key (both `BIGINT`). In the [evaluation](ontology-evaluation.md), detailed analysis found 4 of 4 planted errors; without it, the review found none.
+**Lakehouse Review does not ship or create an ontology.** It uses whatever your teams have documented. If there is nothing relevant, those questions are reported as not answered and the rest of the review runs as usual.
+
+> **Why it matters:** these checks catch errors that pass every type check, such as joining customers to orders on the order key when both are `BIGINT`. Only a documented relationship reveals the error.
 
 ## Which questions are asked
 
@@ -22,26 +24,15 @@ Questions that Unity Catalog already answers, such as a metric view that defines
 ## How answers are used
 
 1. **Answers become evidence** with their citations: Pages, tables, metric views, and the queries Genie One ran.
-2. **An answer is authoritative only when it cites a governed source** that is relevant to the question. An uncited answer is a hypothesis and cannot create a high-confidence finding on its own.
+2. **An answer is authoritative only when it cites a governed source that is relevant to the question**: a Page whose title names the entity or the schema under review and that the same answer ties to that schema, or a metric view or certified dataset in the same schema. An uncited answer is a hypothesis and cannot create a high-confidence finding on its own.
 3. **Genie Code gives a verdict** for every answered question: `conflict`, `no_conflict`, or `unclear`. A missing verdict is reported as unresolved, and a conflict always becomes a finding.
 
 The **Analysis coverage** section of the comment shows how many questions were planned, answered by Unity Catalog, asked, answered authoritatively, and how the verdicts came out.
 
-## Writing Pages the reviewer can use
+## What the reviewer needs
 
-A Page counts as authoritative evidence only when Genie One cites it, its title matches the question, and the same answer ties it to the schema under review. These guidelines make that likely:
-
-| Do this | Why |
-| --- | --- |
-| **Name the entity or the schema in the title**, for example "Order" or "Sales schema" | Relevance is decided by the title. A Page named "Notes" is never matched. |
-| For metric definitions, **name the schema or domain in the title**, for example "Net revenue (sales)" | Definition titles such as "Net Revenue" exist in many domains, so for metrics the title must name the reviewed schema. |
-| **Mention the tables by full name**, for example `main.sales.orders` | Genie One then cites the table next to the Page, which ties the Page to the schema. |
-| State **keys and relationships** explicitly, for example "Orders relate to customers on `o_custkey = c_custkey`" | Join questions are answered from these sentences. Include composite keys. |
-| State the **grain** of each fact table and measure, for example "`o_totalprice` is defined once per order" | Grain questions are answered from these sentences. |
-| List the **meaning of codes**, for example "`l_linestatus`: `F` = line finalized; it is not the order status" | Filter questions are answered from these sentences. |
-| **Share the Page with the reviewer service principal** | A Page the reviewer cannot open is not used, even if you can see it. |
-
-See [`examples/tpch-ontology/pages/`](../examples/tpch-ontology/pages/) for Pages written this way.
+- `analysis-depth: detailed`, and Genie One allowed for service principals in the workspace ([setup](setup.md#3-allow-genie-code-genie-one-and-pages)).
+- **Access to your Pages.** Genie One answers with the reviewer's permissions, so a Page the reviewer cannot open is not used, even if you can see it.
 
 ## Turning it off
 
