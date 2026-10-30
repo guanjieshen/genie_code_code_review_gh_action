@@ -14,6 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v10.2.0
+      - name: Check for internal references
+        run: |
+          # Patterns are split so this file does not match itself.
+          if grep -rIEn --exclude-dir=.git -e 'pypi-''proxy' -e '\.dev\.''databricks\.com' -e '\.staging\.''cloud\.databricks' -e '@''databricks\.com' .; then
+            echo "::error::Internal hosts or addresses found. This repository is public; remove them."
+            exit 1
+          fi
       - name: Check lockfile
         run: |
           if grep -Eo 'https://[a-z0-9.-]+' uv.lock | sort -u | grep -vE '^https://(pypi\.org|files\.pythonhosted\.org)$'; then
@@ -22,7 +29,7 @@ jobs:
           fi
           uv lock --check
           uv export --frozen --no-dev --no-emit-project --format requirements-txt -q -o /tmp/requirements.lock
-          diff <(grep -v '^#' /tmp/requirements.lock) <(grep -v '^#' requirements.lock) || { echo "::error::requirements.lock is out of date. Run: uv export --frozen --no-dev --no-emit-project --format requirements-txt -o requirements.lock"; exit 1; }
+          diff <(grep -v '^ *#' /tmp/requirements.lock) <(grep -v '^ *#' requirements.lock) || { echo "::error::requirements.lock is out of date. Run: uv export --frozen --no-dev --no-emit-project --format requirements-txt -o requirements.lock"; exit 1; }
       - name: Unit tests
         run: uv run --frozen pytest -q
 

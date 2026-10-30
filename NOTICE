@@ -1,0 +1,33 @@
+Lakehouse Review
+
+This project downloads and runs the Genie Code CLI (https://github.com/databricks/genie-code-cli)
+at runtime. The Genie Code CLI is licensed separately by Databricks under the Databricks License
+and may be used only with Databricks services. It is not distributed in this repository.
+
+This project installs the following third-party Python packages at runtime (versions pinned in
+requirements.lock). They are not distributed in this repository.
+
+  attrs                       MIT
+  certifi                     MPL-2.0
+  cffi                        MIT-0
+  charset-normalizer          MIT
+  cryptography                Apache-2.0 OR BSD-3-Clause
+  databricks-sdk              Apache-2.0
+  google-auth                 Apache-2.0
+  idna                        BSD-3-Clause
+  jsonschema                  MIT
+  jsonschema-specifications   MIT
+  protobuf                    BSD-3-Clause
+  pyasn1                      BSD-2-Clause
+  pyasn1-modules              BSD-2-Clause
+  pycparser                   BSD-3-Clause
+  pyyaml                      MIT
+  referencing                 MIT
+  requests                    Apache-2.0
+  rpds-py                     MIT
+  sqlglot                     MIT
+  typing-extensions           PSF-2.0
+  urllib3                     MIT
+
+The action also uses these GitHub Actions, pinned by commit SHA in action.yml:
+astral-sh/setup-uv, databricks/setup-cli, and actions/upload-artifact.

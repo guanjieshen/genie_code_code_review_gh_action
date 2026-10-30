@@ -1,0 +1,56 @@
+name: Integration
+
+# Reviews the TPC-H demo pull request against a real workspace as a service principal.
+# Run it before every release. Needs, in the "integration" environment:
+#   variables IT_DATABRICKS_HOST, IT_CLIENT_ID, IT_CATALOG, IT_SCHEMA, IT_WAREHOUSE_ID
+#   secret    IT_CLIENT_SECRET
+# The reviewer must be able to open the three Pages in examples/tpch-ontology/pages/.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    environment: integration
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - depth: rapid
+            min-issues: 0
+          - depth: detailed
+            min-issues: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: databricks/setup-cli@9b64c94a6d2b2e830592d80e9f14c26d32b42ad7 # v1.20.0
+      - name: Install Genie Code CLI
+        env:
+          GENIE_VERSION: v0.2.0
+        run: bash scripts/install_genie.sh
+      - name: Configure the reviewer profile
+        env:
+          HOST: ${{ vars.IT_DATABRICKS_HOST }}
+          CLIENT_ID: ${{ vars.IT_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.IT_CLIENT_SECRET }}
+        run: |
+          cfg="$RUNNER_TEMP/databrickscfg"
+          printf '[it]\nhost = %s\nclient_id = %s\nclient_secret = %s\nauth_type = oauth-m2m\n' "$HOST" "$CLIENT_ID" "$CLIENT_SECRET" > "$cfg"
+          chmod 600 "$cfg"
+          echo "DATABRICKS_CONFIG_FILE=$cfg" >> "$GITHUB_ENV"
+      - name: Review the demo pull request (${{ matrix.depth }})
+        run: |
+          uv run --frozen python scripts/integration_test.py --profile it --depth "${{ matrix.depth }}" \
+            --min-issues "${{ matrix.min-issues }}" --genie-bin "$GENIE_BIN" \
+            --catalog "${{ vars.IT_CATALOG }}" --schema "${{ vars.IT_SCHEMA }}" --warehouse-id "${{ vars.IT_WAREHOUSE_ID }}"

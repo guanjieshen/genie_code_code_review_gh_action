@@ -4,7 +4,9 @@ Settings are resolved in this order: **action inputs**, then the **config file**
 
 ### Config file
 
-Create `.lakehouse-review/config.yml`:
+Create `.lakehouse-review/config.yml` in the bundle folder. The file is checked when the review starts: unknown values, out-of-range numbers, and invalid YAML fail the check with a list of every problem. Unknown top-level keys are ignored with a warning in the log.
+
+> **Note:** `.genie-review/config.yml` from earlier versions is still read when `.lakehouse-review/config.yml` does not exist. Rename the folder; the old name stops working in v1.0.
 
 ```yaml
 # Bundle target to review against (same as the bundle-target input)
@@ -46,7 +48,7 @@ ontology:
   max_questions: 6                 # Genie One budget per PR
 
 genie:
-  model: ""                        # leave empty for Genie Code's default
+  model: ""                        # empty = gpt-5.6-sol; set a model your workspace serves
   on_model_unavailable: deterministic
 
 instructions_file: .lakehouse-review/instructions.md
@@ -64,7 +66,7 @@ instructions_file: .lakehouse-review/instructions.md
 | `merge_policy.*` | see above | Which findings are blockers. Blockers only fail the check when `fail_on: blocker` |
 | `checks.disable` | `[]` | Check ids to turn off |
 | `checks.severity` | `{}` | Severity overrides by check id |
-| `genie.model` | Genie default | Genie Code model override |
+| `genie.model` | `gpt-5.6-sol` | Genie Code model |
 | `genie.on_model_unavailable` | `deterministic` | `deterministic`, `skip`, or `fail` |
 | `instructions_file` | none | Path to team instructions |
 
@@ -82,4 +84,11 @@ Instructions add context only. The review rules, the evidence requirement, and t
 
 ### Check ids
 
-See the [README](../README.md#what-it-checks) for the full list.
+| Area | Check ids |
+| --- | --- |
+| Data contracts | `contract.unknown-object`, `contract.column-mismatch`, `contract.type-mismatch`, `contract.write-schema` |
+| Lineage and relationships | `lineage.downstream-break`, `ontology.identifier-relationship` |
+| Business semantics | `semantic.metric-definition-drift`, `semantic.non-authoritative-source`, `semantic.filter-meaning` |
+| Data correctness | `correctness.aggregation-grain` |
+| Governance | `governance.tagged-data-flow` |
+| Deployment | `deploy.runtime-support`, `deploy.drift` |

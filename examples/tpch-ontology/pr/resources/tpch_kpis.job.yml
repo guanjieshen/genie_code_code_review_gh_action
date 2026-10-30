@@ -1,0 +1,29 @@
+resources:
+  jobs:
+    tpch_kpis:
+      name: tpch_kpis
+      tasks:
+        - task_key: segment_revenue
+          sql_task:
+            file:
+              path: ../src/segment_revenue.sql
+            warehouse_id: ${var.warehouse_id}
+            parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+        - task_key: segment_order_revenue
+          sql_task:
+            file:
+              path: ../src/segment_order_revenue.sql
+            warehouse_id: ${var.warehouse_id}
+            parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+        - task_key: supplier_margin
+          sql_task:
+            file:
+              path: ../src/supplier_margin.sql
+            warehouse_id: ${var.warehouse_id}
+            parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}

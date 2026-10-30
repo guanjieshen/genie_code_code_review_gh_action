@@ -9,7 +9,7 @@ from genie_review.access import AccessReport, classify
 from genie_review.evidence import collect
 from genie_review.publish import MARKER, render_problem
 
-SP = "581e0906-2732-4577-a879-1abfd79b7966"
+SP = "00000000-0000-4000-8000-000000000001"
 
 
 def test_access_report_writes_grants_for_the_actual_principal():
