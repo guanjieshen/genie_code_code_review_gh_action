@@ -65,7 +65,7 @@ inputs:
     required: false
     default: ""
   config-file:
-    description: Path to the repo config file (read from the base branch). Defaults to .genie-review/config.yml in bundle-dir.
+    description: Path to the repo config file (read from the base branch). Defaults to .lakehouse-review/config.yml in bundle-dir (.genie-review/ is still read).
     required: false
     default: ""
   instructions:
@@ -186,9 +186,9 @@ runs:
           echo
         }
         {
-          profile genie-review "$HOST" "$CLIENT_ID" "$CLIENT_SECRET"
+          profile lakehouse-review "$HOST" "$CLIENT_ID" "$CLIENT_SECRET"
           if [[ -n "$GENIE_HOST" ]]; then
-            profile genie-review-model "$GENIE_HOST" "${GENIE_CLIENT_ID:-$CLIENT_ID}" "${GENIE_CLIENT_SECRET:-$CLIENT_SECRET}"
+            profile lakehouse-review-model "$GENIE_HOST" "${GENIE_CLIENT_ID:-$CLIENT_ID}" "${GENIE_CLIENT_SECRET:-$CLIENT_SECRET}"
           fi
         } > "$cfg"
         chmod 600 "$cfg"
@@ -196,7 +196,7 @@ runs:
         # $GITHUB_ENV applies to later steps only, so export it for the check below too.
         export DATABRICKS_CONFIG_FILE="$cfg"
         # Do not fail here: the review step posts a comment that explains how to fix sign-in.
-        databricks current-user me -p genie-review > /dev/null 2>&1 || echo "::warning title=Lakehouse Review::Could not sign in to $HOST with the reviewer identity."
+        databricks current-user me -p lakehouse-review > /dev/null 2>&1 || echo "::warning title=Lakehouse Review::Could not sign in to $HOST with the reviewer identity."
 
     - name: "Initialize: install dependencies"
       if: steps.guard.outputs.run == 'true'
@@ -205,7 +205,7 @@ runs:
         PY_INDEX: ${{ inputs.python-index-url }}
       run: |
         set -euo pipefail
-        venv="${RUNNER_TEMP}/genie-review-venv"
+        venv="${RUNNER_TEMP}/lakehouse-review-venv"
         uv venv --quiet --python ">=3.11" "$venv"
         index=()
         [[ -n "$PY_INDEX" ]] && index=(--default-index "$PY_INDEX")
@@ -241,8 +241,8 @@ runs:
         INSTRUCTIONS: ${{ inputs.instructions }}
       run: |
         set -euo pipefail
-        args=(run --repo "$GITHUB_WORKSPACE" --base-ref "origin/$BASE_REF" --profile genie-review
-              --genie-bin "$GENIE_BIN" --bundle-dir "$BUNDLE_DIR" --out-dir "$RUNNER_TEMP/genie-review")
+        args=(run --repo "$GITHUB_WORKSPACE" --base-ref "origin/$BASE_REF" --profile lakehouse-review
+              --genie-bin "$GENIE_BIN" --bundle-dir "$BUNDLE_DIR" --out-dir "$RUNNER_TEMP/lakehouse-review")
         [[ -n "$CONFIG_FILE" ]] && args+=(--config-file "$CONFIG_FILE")
         [[ -n "$TARGET" ]] && args+=(--target "$TARGET")
         [[ -n "$WAREHOUSE" ]] && args+=(--warehouse-id "$WAREHOUSE")
@@ -251,7 +251,7 @@ runs:
         [[ -n "$FAIL_ON" ]] && args+=(--fail-on "$FAIL_ON")
         [[ -n "$FAIL_ON_ERROR" ]] && args+=(--fail-on-error "$FAIL_ON_ERROR")
         [[ -n "$GENIE_MODEL" ]] && args+=(--genie-model "$GENIE_MODEL")
-        [[ -n "$GENIE_HOST" ]] && args+=(--genie-profile genie-review-model)
+        [[ -n "$GENIE_HOST" ]] && args+=(--genie-profile lakehouse-review-model)
         [[ -n "$ON_MODEL_UNAVAILABLE" ]] && args+=(--on-model-unavailable "$ON_MODEL_UNAVAILABLE")
         [[ -n "$INSTRUCTIONS" ]] && args+=(--instructions "$INSTRUCTIONS")
         PYTHONPATH="$GITHUB_ACTION_PATH/src" "$GENIE_REVIEW_PYTHON" -m genie_review.cli "${args[@]}"
@@ -278,6 +278,6 @@ runs:
       if: always() && steps.guard.outputs.run == 'true' && inputs.upload-artifacts == 'true'
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
-        name: genie-data-review
-        path: ${{ runner.temp }}/genie-review
+        name: lakehouse-review
+        path: ${{ runner.temp }}/lakehouse-review
         if-no-files-found: ignore

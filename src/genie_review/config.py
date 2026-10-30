@@ -15,7 +15,8 @@ import yaml
 
 from .util import CommandError, log, sh
 
-DEFAULT_CONFIG_PATH = ".genie-review/config.yml"
+DEFAULT_CONFIG_PATH = ".lakehouse-review/config.yml"
+LEGACY_CONFIG_PATH = ".genie-review/config.yml"   # read if the new path is absent
 FAIL_ON = ["none", "blocker", "critical", "high", "medium"]
 ON_MODEL_UNAVAILABLE = ["deterministic", "skip", "fail"]
 
@@ -83,6 +84,12 @@ def load(inputs: dict[str, Any]) -> Settings:
 
     file_cfg: dict[str, Any] = {}
     raw = read_from_base(repo, base_ref, config_path)
+    if raw is None and not inputs.get("config_file"):
+        legacy = os.path.normpath(os.path.join(bundle_dir, LEGACY_CONFIG_PATH))
+        raw = read_from_base(repo, base_ref, legacy)
+        if raw is not None:
+            config_path = legacy
+            log(f"Using {legacy}; rename the folder to .lakehouse-review/ (the old name will stop working in v1.0)")
     if raw:
         file_cfg = yaml.safe_load(raw) or {}
         log(f"Loaded {config_path} from {base_ref}")
@@ -113,7 +120,7 @@ def load(inputs: dict[str, Any]) -> Settings:
         repo=repo,
         base_ref=base_ref,
         profile=inputs["profile"],
-        out_dir=Path(inputs.get("out_dir") or ".genie-review-out").resolve(),
+        out_dir=Path(inputs.get("out_dir") or ".lakehouse-review-out").resolve(),
         target=pick("target"),
         warehouse_id=pick("warehouse_id"),
         preset=pick("preset", default="core"),

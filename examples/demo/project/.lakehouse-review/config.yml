@@ -5,4 +5,4 @@ semantic: genie-one
 checks:
   severity:
     lineage.downstream-break: critical
-instructions_file: .genie-review/instructions.md
+instructions_file: .lakehouse-review/instructions.md

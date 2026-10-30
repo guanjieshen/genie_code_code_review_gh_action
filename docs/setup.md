@@ -43,7 +43,7 @@ The reviewer identity must be able to use Genie Code through Unity Gateway in th
 From a machine with the Databricks CLI and the Genie Code CLI installed, create a profile for the service principal and run:
 
 ```bash
-uv run genie-review doctor --profile genie-pr-reviewer --repo . --base-ref main
+uv run lakehouse-review doctor --profile genie-pr-reviewer --repo . --base-ref main
 ```
 
 It reports whether a Genie Code model is reachable and which route the action will use.

@@ -10,7 +10,7 @@ def test_config_and_instructions_come_from_base_branch(repo_with_pr):
     s = config.load({"repo": str(repo_with_pr), "base_ref": "main", "profile": "p"})
     assert s.fail_on == "critical"          # PR tried to set none
     assert s.disable == ["deploy.drift"]
-    assert s.config_source == ".genie-review/config.yml"
+    assert s.config_source == ".lakehouse-review/config.yml"
 
 
 def test_inputs_override_config_file(repo_with_pr):
@@ -23,7 +23,7 @@ def test_sanitized_worktree_restores_agent_config_from_base(repo_with_pr, tmp_pa
     try:
         assert (tree / "AGENTS.md").read_text() == "Base instructions.\n"
         assert not (tree / ".agents").exists()
-        assert (tree / ".genie-review/config.yml").read_text().startswith("fail_on: critical")
+        assert (tree / ".lakehouse-review/config.yml").read_text().startswith("fail_on: critical")
         assert (tree / "a.py").exists()
     finally:
         git(repo_with_pr, "worktree", "remove", "--force", str(tree))
@@ -41,11 +41,22 @@ def test_write_home_allowlists_genie_one_tools(tmp_path):
 
 def test_monorepo_config_is_read_from_bundle_dir(tmp_path):
     r = tmp_path / "mono"
-    (r / "team/app/.genie-review").mkdir(parents=True)
-    (r / "team/app/.genie-review/config.yml").write_text("fail_on: high\ninstructions_file: .genie-review/notes.md\n")
-    (r / "team/app/.genie-review/notes.md").write_text("Prod is main.\n")
+    (r / "team/app/.lakehouse-review").mkdir(parents=True)
+    (r / "team/app/.lakehouse-review/config.yml").write_text("fail_on: high\ninstructions_file: .lakehouse-review/notes.md\n")
+    (r / "team/app/.lakehouse-review/notes.md").write_text("Prod is main.\n")
     git(r, "init", "-q", "-b", "main")
     git(r, "add", "-A")
     git(r, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "base")
     s = config.load({"repo": str(r), "base_ref": "main", "profile": "p", "bundle_dir": "team/app"})
     assert s.fail_on == "high" and s.instructions == "Prod is main." and s.bundle_dir == "team/app"
+
+
+def test_legacy_config_folder_is_still_read(tmp_path):
+    r = tmp_path / "legacy"
+    (r / ".genie-review").mkdir(parents=True)
+    (r / ".genie-review/config.yml").write_text("fail_on: high\n")
+    git(r, "init", "-q", "-b", "main")
+    git(r, "add", "-A")
+    git(r, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "base")
+    s = config.load({"repo": str(r), "base_ref": "main", "profile": "p"})
+    assert s.fail_on == "high" and s.config_source == ".genie-review/config.yml"

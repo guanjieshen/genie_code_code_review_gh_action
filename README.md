@@ -68,7 +68,7 @@ In your repository settings, add:
 
 ### 3. Add the workflow
 
-Create `.github/workflows/genie-data-review.yml`:
+Create `.github/workflows/lakehouse-review.yml`:
 
 ```yaml
 name: Lakehouse Review
@@ -124,7 +124,7 @@ The review appears as a comment on the pull request. Start in advisory mode (the
 | `genie-host` | empty | Separate workspace that serves the Genie Code model (see below) |
 | `genie-client-id` / `genie-client-secret` | `client-id` / `client-secret` | Identity for `genie-host` |
 | `on-model-unavailable` | `deterministic` | `deterministic`, `skip`, or `fail` |
-| `config-file` | `<bundle-dir>/.genie-review/config.yml` | Repo config file, read from the base branch |
+| `config-file` | `<bundle-dir>/.lakehouse-review/config.yml` | Repo config file, read from the base branch |
 | `instructions` | empty | Extra team context for the reviewer |
 | `python-index-url` | pypi.org | Package index for runners that cannot reach pypi.org (for example an Artifactory or Nexus mirror). Dependencies are hash-pinned |
 | `genie-version` | `v0.2.0` | Genie Code CLI release |
@@ -135,7 +135,7 @@ The review appears as a comment on the pull request. Start in advisory mode (the
 Teams tune the review with an optional config file. It is always read from the **base branch**, so a pull request cannot change how it is reviewed.
 
 ```yaml
-# .genie-review/config.yml
+# .lakehouse-review/config.yml
 target: staging
 fail_on: critical
 semantic: genie-one
@@ -144,7 +144,7 @@ checks:
   disable: [deploy.runtime-support]
   severity:
     lineage.downstream-break: critical
-instructions_file: .genie-review/instructions.md
+instructions_file: .lakehouse-review/instructions.md
 ```
 
 `instructions.md` is plain text the reviewer reads as team context, for example "the `main` catalog is production" or "finance owns all `gold_*` tables". It adds context; it cannot change the review rules or output format. See [docs/configuration.md](docs/configuration.md).
@@ -210,7 +210,7 @@ See [docs/security.md](docs/security.md).
 ```bash
 uv sync
 uv run pytest
-uv run genie-review run --repo ../my-bundle-repo --base-ref main --profile my-profile --no-publish
+uv run lakehouse-review run --repo ../my-bundle-repo --base-ref main --profile my-profile --no-publish
 ```
 
-`--no-publish` prints the review and writes the impact graph, evidence, and prompt to `.genie-review-out/`.
+`--no-publish` prints the review and writes the impact graph, evidence, and prompt to `.lakehouse-review-out/`.

@@ -25,7 +25,7 @@ from .util import CommandError, log, sh
 DEFAULT_GENIE_MODEL = "gpt-5.6-sol"
 GENIE_ONE_TOOLS = ["genie_ask", "genie_poll_response", "genie_get_query_result"]
 # Agent configuration Genie loads from a repo. Replaced with base-branch versions before review.
-AGENT_CONFIG_PATHS = ["AGENTS.md", "AGENTS.override.md", ".agents", ".genie", ".codex", ".genie-review"]
+AGENT_CONFIG_PATHS = ["AGENTS.md", "AGENTS.override.md", ".agents", ".genie", ".codex", ".genie-review", ".lakehouse-review"]
 
 
 @dataclass

@@ -23,7 +23,7 @@ def sh(cmd: list[str], cwd: Path | str | None = None, check: bool = True, env: d
 
 
 def log(msg: str) -> None:
-    print(f"[genie-review] {msg}", file=sys.stderr, flush=True)
+    print(f"[lakehouse-review] {msg}", file=sys.stderr, flush=True)
 
 
 def group(title: str):

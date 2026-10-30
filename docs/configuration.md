@@ -4,7 +4,7 @@ Settings are resolved in this order: **action inputs**, then the **config file**
 
 ### Config file
 
-Create `.genie-review/config.yml`:
+Create `.lakehouse-review/config.yml`:
 
 ```yaml
 # Bundle target to review against (same as the bundle-target input)
@@ -49,7 +49,7 @@ genie:
   model: ""                        # leave empty for Genie Code's default
   on_model_unavailable: deterministic
 
-instructions_file: .genie-review/instructions.md
+instructions_file: .lakehouse-review/instructions.md
 ```
 
 | Key | Default | Description |

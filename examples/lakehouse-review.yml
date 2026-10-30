@@ -1,4 +1,4 @@
-# Copy to .github/workflows/genie-data-review.yml in your bundle repository.
+# Copy to .github/workflows/lakehouse-review.yml in your bundle repository.
 name: Lakehouse Review
 
 on:
@@ -10,7 +10,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: genie-data-review-${{ github.event.pull_request.number }}
+  group: lakehouse-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:

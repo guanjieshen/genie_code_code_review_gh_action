@@ -1,4 +1,4 @@
-"""Command line entry point: `genie-review run` (used by the action) and `genie-review doctor`."""
+"""Command line entry point: `lakehouse-review run` (used by the action), `doctor`, and `setup`."""
 
 from __future__ import annotations
 
@@ -29,11 +29,11 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--fail-on-error", help="true to fail the check when the review cannot run")
     p.add_argument("--config-file")
     p.add_argument("--instructions")
-    p.add_argument("--out-dir", default=".genie-review-out")
+    p.add_argument("--out-dir", default=".lakehouse-review-out")
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="genie-review", description="Lakehouse Review: Databricks-aware code reviews with Genie-powered semantic analysis.")
+    ap = argparse.ArgumentParser(prog="lakehouse-review", description="Lakehouse Review: Databricks-aware code reviews with Genie-powered semantic analysis.")
     ap.add_argument("--version", action="version", version=__version__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     run_p = sub.add_parser("run", help="Review the current branch against its base")

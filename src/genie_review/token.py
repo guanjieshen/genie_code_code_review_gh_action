@@ -3,7 +3,7 @@
 Genie Code calls this as its auth command. `databricks auth token` only supports user (U2M) logins;
 this uses the Databricks SDK, so it also works for service principals (M2M) and GitHub OIDC.
 
-    python -m genie_review.token --profile genie-review
+    python -m genie_review.token --profile lakehouse-review
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         tok = access_token(a.profile)
     except Exception as e:  # noqa: BLE001
-        print(f"genie-review token: {e}", file=sys.stderr)
+        print(f"lakehouse-review token: {e}", file=sys.stderr)
         return 1
     expiry = (datetime.now(timezone.utc) + timedelta(minutes=45)).isoformat()
     print(json.dumps({"access_token": tok, "token_type": "Bearer", "expiry": expiry}))
