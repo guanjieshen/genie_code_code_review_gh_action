@@ -8,6 +8,11 @@ The `v0` tag always points to the latest v0 release. To pin a release, use its t
 - uses: guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.4.0
 ```
 
+## v0.4.1
+
+- Ontology checks use the definitions the workspace already has (Pages, metric views, certified datasets) through Genie One. The project no longer ships example ontology content: the TPC-H demo and its Pages are removed.
+- The integration test uses the orders demo.
+
 ## v0.4.0
 
 Makes the action ready for teams outside Databricks to set up and run on their own.
