@@ -92,7 +92,7 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
         return _problem(s, "Could not sign in to Databricks",
                         f"Signing in with the reviewer identity failed: {classify(e)}.",
                         ["Check that `databricks-host` is the workspace URL and that the client ID and secret "
-                         "(for example `GENIE_REVIEWER_CLIENT_ID` and `GENIE_REVIEWER_CLIENT_SECRET`) belong to the same service principal.",
+                         "(for example `LAKEHOUSE_REVIEW_CLIENT_ID` and `LAKEHOUSE_REVIEW_CLIENT_SECRET`) belong to the same service principal.",
                          "Check that the service principal is added to this workspace and is active.",
                          "If you use OIDC (no secret), add `id-token: write` to the workflow permissions and configure federation for the service principal."],
                         publish_to_github)
