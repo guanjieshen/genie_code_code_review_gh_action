@@ -30,17 +30,9 @@ def test_inline_body_is_short_and_marked():
     review, _ = build()
     g = review.groups[0]
     body = render.inline_body(g)
-    assert body.splitlines()[0] == render.inline_marker(g)
+    assert body.splitlines()[0] == render.inline_marker(g.primary.check)
     assert g.primary.title in body and "Recommended fix" in body
     assert "Technical evidence" not in body                # evidence stays in the review comment
-
-
-def test_marker_survives_new_model_wording():
-    review, _ = build()
-    g = review.groups[0]
-    before = render.inline_marker(g)
-    g.primary.title, g.primary.explanation = "Reworded title on the next push", "Reworded."
-    assert render.inline_marker(g) == before
 
 
 class FakeGitHub:
@@ -48,7 +40,7 @@ class FakeGitHub:
         self.existing, self.review_ok, self.posted = list(existing_bodies), review_ok, []
 
     def get(self, url, headers, params, timeout):
-        return Resp([{"body": b} for b in self.existing] if params["page"] == 1 else [])
+        return Resp(self.existing if params["page"] == 1 else [])
 
     def post(self, url, headers, json, timeout):
         if url.endswith("/reviews"):
@@ -81,15 +73,19 @@ def _env(monkeypatch, tmp_path, gh):
     monkeypatch.setattr(publish, "requests", gh)
 
 
-def _comment(key, line=3):
-    return {"path": "src/a.sql", "line": line, "body": f"<!-- lakehouse-review:{key} -->\nissue {key}"}
+def _comment(check, line=3, path="src/a.sql"):
+    return {"check": check, "path": path, "line": line, "body": f"<!-- lakehouse-review:{check} -->\nissue {check} at {line}"}
 
 
 def test_each_issue_is_commented_once_across_pushes(monkeypatch, tmp_path):
-    gh = FakeGitHub(existing_bodies=["<!-- lakehouse-review:g-1 -->\nissue g-1"])
+    earlier = [{"path": "src/a.sql", "line": 12, "body": "<!-- lakehouse-review:semantic.filter-meaning -->\nold wording"}]
+    gh = FakeGitHub(existing_bodies=earlier)
     _env(monkeypatch, tmp_path, gh)
-    assert publish.post_inline([_comment("g-1"), _comment("g-2")]) == 1
-    assert [c["body"].splitlines()[1] for c in gh.posted] == ["issue g-2"]
+    new = [_comment("semantic.filter-meaning", 13),                  # same issue, moved one line: skipped
+           _comment("semantic.filter-meaning", 30),                  # same check far away: a different issue
+           _comment("semantic.filter-meaning", 13, "src/b.sql"),     # another file
+           _comment("contract.column-mismatch", 12)]                 # another check on the same line
+    assert publish.post_inline(new) == 3
     assert gh.posted[0]["side"] == "RIGHT"
 
 

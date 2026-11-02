@@ -295,7 +295,7 @@ def _report(s: Settings, imp: impact.ImpactResult, ev: evidence.Evidence, plan: 
 def _comment_on_lines(s: Settings, groups: list) -> None:
     """Comment on the code line of each issue that is part of the diff. Never fails the review."""
     lines = commentable_lines(s)
-    comments = [{"path": g.primary.file, "line": g.primary.line, "body": render.inline_body(g)}
+    comments = [{"check": g.primary.check, "path": g.primary.file, "line": g.primary.line, "body": render.inline_body(g)}
                 for g in groups if g.primary.line in lines.get(g.primary.file, set())]
     try:
         log(f"{publish.post_inline(comments)} new comment(s) on code lines; {len(groups) - len(comments)} issue(s) are not on a changed line")

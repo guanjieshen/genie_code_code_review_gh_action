@@ -136,18 +136,25 @@ def post_comment(body: str) -> str | None:
     return r.json().get("html_url")
 
 
-def post_inline(comments: list[dict[str, Any]]) -> int:
-    """Comment on code lines: {path, line, body} each, where body carries a hidden finding marker.
+INLINE_MARKER = re.compile(r"<!-- lakehouse-review:([\w.-]+) -->")
+NEARBY = 3   # model-worded findings can move a line or two between runs
 
-    Comments already posted on an earlier push (same marker) are skipped, so each issue is commented once.
-    Returns how many were posted.
+
+def post_inline(comments: list[dict[str, Any]]) -> int:
+    """Comment on code lines: {check, path, line, body} each.
+
+    An issue already commented on an earlier push (same check, same file, within a few lines) is skipped,
+    so each issue is commented once. Returns how many were posted.
     """
     pr = _pull_request()
     if not pr or not comments:
         return 0
     h = pr["headers"]
-    posted = "\n".join(c.get("body", "") for c in _all(f"{pr['url']}/pulls/{pr['number']}/comments", h))
-    new = [c for c in comments if c["body"].splitlines()[0] not in posted]
+    earlier = [(m.group(1), c.get("path"), c.get("line") or c.get("original_line") or 0)
+               for c in _all(f"{pr['url']}/pulls/{pr['number']}/comments", h)
+               if (m := INLINE_MARKER.match(c.get("body", "")))]
+    new = [c for c in comments
+           if not any(chk == c["check"] and path == c["path"] and abs(line - c["line"]) <= NEARBY for chk, path, line in earlier)]
     if not new:
         return 0
     review = {"commit_id": pr["sha"], "event": "COMMENT",
