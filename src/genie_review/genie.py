@@ -23,7 +23,6 @@ from .config import Settings
 from .util import CommandError, log, sh
 
 DEFAULT_GENIE_MODEL = "gpt-5.6-sol"   # documented in action.yml and docs/inputs.md; override with genie-model
-GENIE_ONE_TOOLS = ["genie_ask", "genie_poll_response", "genie_get_query_result"]
 # Agent configuration Genie loads from a repo. Replaced with base-branch versions before review.
 AGENT_CONFIG_PATHS = ["AGENTS.md", "AGENTS.override.md", ".agents", ".genie", ".codex", ".genie-review", ".lakehouse-review"]
 
@@ -41,8 +40,6 @@ class Route:
 class GenieRun:
     route: Route | None
     output: dict[str, Any] | None = None
-    mcp_questions: list[str] = field(default_factory=list)
-    mcp_errors: list[str] = field(default_factory=list)
     usage: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
 
@@ -63,8 +60,8 @@ def _genie_env(home: Path) -> dict[str, str]:
     return {**os.environ, "GENIE_HOME": str(home), "PYTHONPATH": f"{src}{os.pathsep}{path}" if path else src}
 
 
-def write_home(home: Path, route: Route, genie_one_host: str | None) -> None:
-    """Write the same config Genie's interactive onboarding writes, plus an allowlisted Genie One MCP server."""
+def write_home(home: Path, route: Route) -> None:
+    """Write the same config Genie's interactive onboarding writes. No MCP servers: Genie Code gets no tools."""
     home.mkdir(parents=True, exist_ok=True)
     lines = [
         'model_provider = "databricks"',
@@ -86,16 +83,6 @@ def write_home(home: Path, route: Route, genie_one_host: str | None) -> None:
         "[model_providers.databricks.http_headers]",
         f'x-databricks-workspace-id = "{route.workspace_id}"',
     ]
-    if genie_one_host:
-        lines += [
-            "",
-            "[mcp_servers.genie_one]",
-            f'url = "{genie_one_host}/ai-gateway/mcp-services/system.ai.genie_one_mcp"',
-            'bearer_token_env_var = "GENIE_ONE_TOKEN"',
-            "enabled_tools = " + json.dumps(GENIE_ONE_TOOLS),
-            'default_tools_approval_mode = "approve"',
-            "tool_timeout_sec = 300",
-        ]
     (home / "config.toml").write_text("\n".join(lines) + "\n")
 
 
@@ -135,7 +122,7 @@ def resolve_route(s: Settings) -> tuple[Route | None, list[str]]:
 def probe(genie_bin: str, route: Route) -> tuple[bool, str]:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         home = Path(tmp) / "home"
-        write_home(home, route, None)
+        write_home(home, route)
         try:
             r = subprocess.run([genie_bin, "exec", "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "Reply with exactly: OK"],
                                cwd=tmp, env=_genie_env(home), capture_output=True, text=True,
@@ -170,17 +157,15 @@ def sanitized_worktree(repo: Path, base_ref: str, dest: Path, bundle_dir: str = 
     return dest
 
 
-def run_review(s: Settings, route: Route, prompt: str, schema_path: Path, use_genie_one: bool) -> GenieRun:
+def run_review(s: Settings, route: Route, prompt: str, schema_path: Path) -> GenieRun:
     run = GenieRun(route)
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         tmp_p = Path(tmp)
         home = tmp_p / "home"
-        write_home(home, route, _client(s.profile).config.host.rstrip("/") if use_genie_one else None)
+        write_home(home, route)
         tree = sanitized_worktree(s.repo, s.base_ref, tmp_p / "tree", s.bundle_dir)
         out_file = tmp_p / "out.json"
         env = _genie_env(home)
-        if use_genie_one:
-            env["GENIE_ONE_TOKEN"] = _token(s.profile)
         try:
             r = subprocess.run([s.genie_bin, "exec", "--strict-config", "--ephemeral", "--json", "-s", "read-only",
                                 "--output-schema", str(schema_path), "-o", str(out_file), "-"],
@@ -196,12 +181,6 @@ def run_review(s: Settings, route: Route, prompt: str, schema_path: Path, use_ge
                 evt = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            item = evt.get("item") or {}
-            if evt.get("type") == "item.completed" and item.get("type") == "mcp_tool_call" and item.get("tool") == "genie_ask":
-                if item.get("status") == "completed":
-                    run.mcp_questions.append((item.get("arguments") or {}).get("question", ""))
-                else:
-                    run.mcp_errors.append(str((item.get("error") or {}).get("message", item.get("status")))[:200])
             if evt.get("type") == "turn.completed":
                 run.usage = evt.get("usage") or {}
             if evt.get("type") == "turn.failed":

@@ -21,7 +21,6 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--depth", help="rapid | detailed")
     p.add_argument("--ontology-budget", help="Genie One questions per PR in detailed mode")
     p.add_argument("--ontology", dest="ontology_enabled", choices=["on", "off"], help="Ontology question planning")
-    p.add_argument("--reuse-evidence", help="Reuse evidence.json from an earlier run (for A/B comparisons)")
     p.add_argument("--genie-model")
     p.add_argument("--genie-profile", help="Profile for a separate workspace that serves the Genie Code model")
     p.add_argument("--genie-bin", default="genie")
@@ -57,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         from . import reviewer_setup
         return reviewer_setup.main(a)
 
-    inputs = {k: v for k, v in vars(a).items() if k not in ("cmd", "no_publish", "reuse_evidence")}
+    inputs = {k: v for k, v in vars(a).items() if k not in ("cmd", "no_publish")}
     try:
         s = config.load(inputs)
     except config.ConfigError as e:
@@ -76,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         print(doctor.render(results))
         return doctor.exit_code(results)
 
-    result = pipeline.run(s, publish_to_github=not a.no_publish, reuse_evidence=a.reuse_evidence)
+    result = pipeline.run(s, publish_to_github=not a.no_publish)
     print(result.body)
     if result.failed:
         log(f"Failing: findings at or above '{s.fail_on}'")

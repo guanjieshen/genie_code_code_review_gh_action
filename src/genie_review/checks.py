@@ -68,7 +68,7 @@ TYPE_FAMILY = {
 }
 
 
-def enabled_checks(preset: str, semantic: str, enable: list[str], disable: list[str]) -> set[str]:
+def enabled_checks(semantic: str, enable: list[str], disable: list[str]) -> set[str]:
     ids = {c.id for c in CATALOG.values() if c.preset == "core"}
     if semantic != "off":
         ids |= {c.id for c in CATALOG.values() if c.preset == "semantic"}

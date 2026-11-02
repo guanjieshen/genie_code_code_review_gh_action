@@ -10,23 +10,27 @@ pull_request
 2. Evidence             read-only workspace lookups: metadata, tags, metric views,
    │                    lineage, deployed job settings, offered runtimes
    ▼
-3. Plan + exact checks  decide which checks apply; run the ones that need no model
+3. Ontology             plan business questions; Unity Catalog answers what it can;
+   │                    Genie One is asked the rest (detailed mode only)
+   ▼
+4. Plan + exact checks  decide which checks apply; run the ones that need no model
    │
    ▼
-4. Genie review         route check → Genie Code (read-only sandbox) with plan + evidence;
-   │                    Genie One MCP for business definitions
+5. Genie review         route check → Genie Code (read-only sandbox, no tools) with plan,
+   │                    evidence, Genie One answers, and the diff
    ▼
-5. Process results      normalize (area, confidence, merge impact) → correlate → prioritize
+6. Process results      normalize (area, confidence, merge impact) → correlate → prioritize
    │
    ▼
-6. Report + publish     review.json + Markdown → one PR comment (updated in place) + job summary
+7. Report + publish     review.json + Markdown → one PR comment (updated in place) + job summary
 ```
 
 | Stage | Module |
 |---|---|
 | Change discovery | `impact.py`, `bundle.py`, `code_refs.py` |
 | Evidence collection | `evidence.py`, `access.py` |
-| Detection | `checks.py` (exact checks), `genie.py` + `prompt.py` (Genie) |
+| Ontology | `ontology.py` (question planner, Genie One client, citations, verdicts) |
+| Detection | `checks.py` (exact checks), `genie.py` + `prompt.py` (Genie Code) |
 | Validation | `publish.genie_findings` (schema, plan, evidence grounding, sanitizing) |
 | Normalization | `normalize.py` (review area, evidence-based confidence, merge-impact policy, stable ids) |
 | Correlation and prioritization | `correlate.py` (root-cause grouping, deterministic ordering, "Needs attention") |
@@ -53,8 +57,8 @@ Every edge records how it was found (`bundle:entry_file`, `import_graph`, `sql:s
 
 ### Evidence ids
 
-Each fact gets an id, such as `ev:uc:main.sales.orders:metadata` or `ev:lineage:main.sales.orders.cust_id:downstream`. Findings must cite these ids, or a Genie One question that was actually asked. Findings without valid evidence are dropped before publishing.
+Each fact gets an id, such as `ev:uc:main.sales.orders:metadata` or `ev:lineage:main.sales.orders.cust_id:downstream`. Findings must cite these ids; Genie One answers are facts too (`ev:genie_one:<question id>`). Findings without valid evidence are dropped before publishing.
 
 ### Model routes
 
-All model work goes through Genie Code (and Genie One for semantics). Before each review, a short Genie Code call checks the route: the target workspace first, then `genie-host` if set. If neither answers, the exact checks still post.
+All model work goes through Genie Code, and Genie One for business definitions. The action asks Genie One itself; Genie Code only reads the answers. Before each review, a short Genie Code call checks the route: the target workspace first, then `genie-host` if set. If neither answers, the exact checks still post.

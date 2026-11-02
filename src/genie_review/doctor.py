@@ -13,7 +13,7 @@ from typing import Callable
 from databricks.sdk import WorkspaceClient
 
 from . import bundle as bdl
-from . import genie
+from . import genie, ontology
 from .config import Settings
 from .evidence import pick_warehouse
 from .ontology import GenieOne
@@ -90,7 +90,7 @@ def run(s: Settings, client: Callable[[str], WorkspaceClient] = lambda p: Worksp
     else:
         try:
             tools = GenieOne(w.config.host, genie._token(s.profile)).tools()
-            missing = sorted(set(genie.GENIE_ONE_TOOLS) - set(tools))
+            missing = sorted(set(ontology.GENIE_ONE_TOOLS) - set(tools))
             out.append(Result("Genie One", WARN if missing else OK,
                               f"missing tools: {', '.join(missing)}" if missing else "reachable",
                               "Update the Genie One MCP server or set semantic: off." if missing else ""))

@@ -99,8 +99,20 @@ def _short(fqn: str) -> str:
 def plan(impact, facts: dict[str, Any], budget: int = 6) -> list[Question]:
     """Questions whose answers could change the review, most valuable first."""
     qs: dict[str, Question] = {}
+    for add in (_join_questions, _grain_questions, _filter_questions, _metric_questions, _source_questions):
+        add(impact, facts, qs)
+    # risk first; among equals, questions about more objects first; the concept name only breaks exact ties
+    ordered = sorted(qs.values(), key=lambda q: (q.priority, INTENT_RANK[q.intent], -len(q.objects), q.concept))
+    for q in ordered:
+        if q.status == "planned":
+            resolve_with_uc(q, facts)
+    for q in [q for q in ordered if q.status != "answered_by_uc"][budget:]:
+        q.status = "skipped_budget"
+    return ordered
 
-    # 1. relationships: one question per pair of tables the PR newly joins (or joins differently)
+
+def _join_questions(impact, facts: dict[str, Any], qs: dict[str, Question]) -> None:
+    """Relationships: one question per pair of tables the PR newly joins (or joins differently)."""
     base_joins = {(tuple(j["left"]), tuple(j["right"])) for r in getattr(impact, "base_refs", {}).values() for j in r.joins}
     pairs: dict[tuple[str, str], list[dict]] = {}
     for key, refs in impact.refs.items():
@@ -147,7 +159,9 @@ def plan(impact, facts: dict[str, Any], budget: int = 6) -> list[Question]:
             continue
         qs[qid] = Question(qid, intent, concept, text, objs, (j["entry"], j["line"]), priority)
 
-    # 2. aggregation grain: a table's measure summed while that table is joined, on its own key, to a finer-grained table
+
+def _grain_questions(impact, facts: dict[str, Any], qs: dict[str, Question]) -> None:
+    """Aggregation grain: a measure summed while its table is joined, on its own key, to a finer-grained table."""
     for key, refs in impact.refs.items():
         entry = impact.head.entries[key]["entry"]
         for a in refs.aggregates:
@@ -168,7 +182,9 @@ def plan(impact, facts: dict[str, Any], budget: int = 6) -> list[Question]:
                                    "and does this double count? Cite the definition.",
                                    [f"uc:{t}.{a['column']}", f"uc:{other[0]}.{other[1]}"], (entry, a["line"]), 0)
 
-    # 3. filter meaning: a status/flag/type code used to define a business output
+
+def _filter_questions(impact, facts: dict[str, Any], qs: dict[str, Question]) -> None:
+    """Filter meaning: a status, flag, or type code used to define a business output."""
     for key, refs in impact.refs.items():
         entry = impact.head.entries[key]["entry"]
         for f in refs.filters:
@@ -188,7 +204,9 @@ def plan(impact, facts: dict[str, Any], budget: int = 6) -> list[Question]:
                 q.status, q.uc_answer = "answered_by_uc", f"ev:uc:{f['table']}:metadata"   # the column comment explains the code
             qs[qid] = q
 
-    # 4. metric definitions: measure-like outputs of tables the PR writes
+
+def _metric_questions(impact, facts: dict[str, Any], qs: dict[str, Question]) -> None:
+    """Metric definitions: measure-like outputs of tables the PR writes."""
     for e in impact.head.entries.values():
         for t, cols in (e.get("outputs") or {}).items():
             for c in cols:
@@ -205,7 +223,9 @@ def plan(impact, facts: dict[str, Any], budget: int = 6) -> list[Question]:
                                    "(filters, exclusions, and grain), and which asset is authoritative for it? Cite the definition.",
                                    [f"uc:{t}.{c}"], (e["entry"], e["writes"].get(t, 0)), 1)
 
-    # 5. authoritative source: business tables read without a certified/deprecated signal
+
+def _source_questions(impact, facts: dict[str, Any], qs: dict[str, Question]) -> None:
+    """Authoritative source: business tables read without a certified or deprecated signal."""
     written = set(impact.graph.tables_with("writes"))
     for t in impact.graph.tables_with("reads"):
         if t in written or not MEASURE.search(_short(t)):
@@ -216,21 +236,6 @@ def plan(impact, facts: dict[str, Any], budget: int = 6) -> list[Question]:
             qs[qid] = Question(qid, "authoritative_source", concept,
                                f"Is `{t}` the authoritative source for {concept}? If not, which dataset is, and why? Cite the definition.",
                                [f"uc:{t}"], priority=3)
-
-    # risk first; among equals, questions about more objects first; the concept name only breaks exact ties
-    ordered = sorted(qs.values(), key=lambda q: (q.priority, INTENT_RANK[q.intent], -len(q.objects), q.concept))
-    for q in ordered:
-        if q.status == "planned":
-            resolve_with_uc(q, facts)
-    asked = 0
-    for q in ordered:
-        if q.status == "answered_by_uc":
-            continue
-        if asked >= budget:
-            q.status = "skipped_budget"
-            continue
-        asked += 1
-    return ordered
 
 
 def resolve_with_uc(q: Question, facts: dict[str, Any]) -> None:
@@ -342,6 +347,9 @@ def assess(answer: str, citations: list[dict[str, str]], facts: dict[str, Any], 
                     governed = True
     conflicting = bool(re.search(r"\b(conflict|inconsistent|two (different )?definitions|disagree)\w*", answer, re.I))
     return governed, conflicting
+
+
+GENIE_ONE_TOOLS = ["genie_ask", "genie_poll_response"]   # the tools this client calls
 
 
 class GenieOne:

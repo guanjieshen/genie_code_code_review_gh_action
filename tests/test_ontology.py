@@ -266,7 +266,7 @@ def test_findings_are_linked_to_the_answer_they_rely_on_and_verdicts_stay_consis
 
 def test_prompt_carries_the_pr_diff_as_fenced_data():
     from genie_review import prompt
-    text = prompt.compose("main", [], {}, {}, [], "", False, diff="+JOIN orders o ON c.c_custkey = o.o_orderkey")
+    text = prompt.compose("main", [], {}, {}, [], "", diff="+JOIN orders o ON c.c_custkey = o.o_orderkey")
     assert "PR DIFF" in text and "c.c_custkey = o.o_orderkey" in text
     body = text.rsplit("PR DIFF (", 1)[1]
     assert body.count('<data id="') == 1                              # inside one delimited data block

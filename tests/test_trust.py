@@ -29,13 +29,11 @@ def test_sanitized_worktree_restores_agent_config_from_base(repo_with_pr, tmp_pa
         git(repo_with_pr, "worktree", "remove", "--force", str(tree))
 
 
-def test_write_home_allowlists_genie_one_tools(tmp_path):
-    write_home(tmp_path, Route("p", "https://ws", "123", "gpt-5.6-sol", "target workspace"), "https://ws")
+def test_genie_code_gets_no_tools(tmp_path):
+    write_home(tmp_path, Route("p", "https://ws", "123", "gpt-5.6-sol", "target workspace"))
     cfg = (tmp_path / "config.toml").read_text()
     assert 'base_url = "https://ws/ai-gateway/codex/v1"' in cfg
-    assert 'enabled_tools = ["genie_ask", "genie_poll_response", "genie_get_query_result"]' in cfg
-    assert "genie_cancel_response" not in cfg
-    assert 'default_tools_approval_mode = "approve"' in cfg
+    assert "mcp_servers" not in cfg
     assert '"-m", "genie_review.token", "--profile", "p"' in cfg   # works for service principals, not only user logins
 
 

@@ -20,7 +20,7 @@ DEFAULT_CONFIG_PATH = ".lakehouse-review/config.yml"
 LEGACY_CONFIG_PATH = ".genie-review/config.yml"   # read if the new path is absent
 FAIL_ON = ["none", "blocker", "critical", "high", "medium"]
 ON_MODEL_UNAVAILABLE = ["deterministic", "skip", "fail"]
-KNOWN_KEYS = {"fail_on", "analysis_depth", "semantic", "preset", "target", "warehouse_id", "instructions_file",
+KNOWN_KEYS = {"fail_on", "analysis_depth", "semantic", "target", "warehouse_id", "instructions_file",
               "genie", "limits", "checks", "report", "merge_policy", "ontology"}
 
 
@@ -40,8 +40,7 @@ class Settings:
     out_dir: Path
     target: str | None = None
     warehouse_id: str | None = None
-    preset: str = "core"
-    semantic: str = "genie-one"  # genie-one | genie-agent:<space_id> | off
+    semantic: str = "genie-one"  # genie-one | off
     genie_model: str | None = None
     genie_profile: str | None = None  # profile for the workspace that serves the Genie Code model
     genie_bin: str = "genie"
@@ -49,7 +48,6 @@ class Settings:
     fail_on: str = "none"
     fail_on_error: bool = False  # fail the check when the review cannot run (setup problems)
     max_findings: int = 15
-    min_confidence: float = 0.6
     instructions: str = ""
     enable: list[str] = field(default_factory=list)
     disable: list[str] = field(default_factory=list)
@@ -90,30 +88,7 @@ def load(inputs: dict[str, Any]) -> Settings:
     repo = Path(inputs["repo"]).resolve()
     base_ref = inputs["base_ref"]
     bundle_dir = os.path.normpath(inputs.get("bundle_dir") or ".")
-    # Paths in the config file (and the default config location) are relative to the bundle folder
-    config_path = inputs.get("config_file") or os.path.normpath(os.path.join(bundle_dir, DEFAULT_CONFIG_PATH))
-
-    file_cfg: dict[str, Any] = {}
-    raw = read_from_base(repo, base_ref, config_path)
-    if raw is None and not inputs.get("config_file"):
-        legacy = os.path.normpath(os.path.join(bundle_dir, LEGACY_CONFIG_PATH))
-        raw = read_from_base(repo, base_ref, legacy)
-        if raw is not None:
-            config_path = legacy
-            log(f"Using {legacy}; rename the folder to .lakehouse-review/ (the old name will stop working in v1.0)")
-    if raw:
-        try:
-            file_cfg = yaml.safe_load(raw) or {}
-        except yaml.YAMLError as e:
-            raise ConfigError([f"`{config_path}` is not valid YAML: {str(e).splitlines()[0]}"], config_path) from None
-        if not isinstance(file_cfg, dict):
-            raise ConfigError([f"`{config_path}` must be a mapping of settings, not a {type(file_cfg).__name__}"], config_path)
-        log(f"Loaded {config_path} from {base_ref}")
-        unknown = sorted(set(file_cfg) - KNOWN_KEYS)
-        if unknown:
-            log(f"Ignoring unknown keys in {config_path}: {', '.join(unknown)}")
-    elif inputs.get("config_file"):
-        raise ConfigError([f"config file `{config_path}` was not found on the base branch `{base_ref}`"], config_path)
+    config_path, file_cfg = _read_config_file(repo, base_ref, bundle_dir, inputs.get("config_file"))
 
     def pick(key: str, file_key: str | None = None, default: Any = None) -> Any:
         v = inputs.get(key)
@@ -161,7 +136,6 @@ def load(inputs: dict[str, Any]) -> Settings:
         out_dir=Path(inputs.get("out_dir") or ".lakehouse-review-out").resolve(),
         target=pick("target"),
         warehouse_id=pick("warehouse_id"),
-        preset=pick("preset", default="core"),
         semantic=pick("semantic", default="genie-one"),
         genie_model=pick("genie_model", "genie.model"),
         genie_profile=inputs.get("genie_profile") or None,
@@ -173,12 +147,11 @@ def load(inputs: dict[str, Any]) -> Settings:
         ontology=_bool(pick("ontology_enabled", "ontology.enabled", default=True)),
         ontology_budget=num(int, "ontology_budget", "ontology.max_questions", 6, 0, 20),
         max_findings=num(int, "max_findings", "limits.max_findings", 15, 1, 100),
-        min_confidence=num(float, "min_confidence", "limits.min_confidence", 0.6, 0, 1),
         instructions="\n\n".join(instructions),
         enable=list(checks.get("enable") or []),
         disable=list(checks.get("disable") or []),
         severity=dict(checks.get("severity") or {}),
-        config_source=config_path if raw else "defaults",
+        config_source=config_path,
         **_report_settings(file_cfg),
         bundle_dir=bundle_dir,
     )
@@ -199,8 +172,7 @@ def validate(s: Settings) -> list[str]:
     one_of("fail-on", s.fail_on, FAIL_ON)
     one_of("analysis-depth", s.depth, ["rapid", "detailed"])
     one_of("on-model-unavailable", s.on_model_unavailable, ON_MODEL_UNAVAILABLE)
-    if s.semantic not in ("genie-one", "off") and not str(s.semantic).startswith("genie-agent:"):
-        p.append(f"`semantic` must be genie-one or off; got {s.semantic!r}")
+    one_of("semantic", s.semantic, ["genie-one", "off"])
     bd = s.bundle_dir
     if os.path.isabs(bd) or bd == ".." or bd.startswith("../"):
         p.append(f"`bundle-dir` must be a folder inside the repository; got {bd!r}")
@@ -219,6 +191,36 @@ def validate(s: Settings) -> list[str]:
     if not 0 <= s.max_priority <= 10:
         p.append(f"`report.max_priority` must be between 0 and 10; got {s.max_priority}")
     return p
+
+
+def _read_config_file(repo: Path, base_ref: str, bundle_dir: str, explicit: str | None) -> tuple[str, dict[str, Any]]:
+    """The config file from the base branch: (path, settings), or ("defaults", {}) if there is none.
+
+    Paths in the config file, and the default location, are relative to the bundle folder.
+    """
+    path = explicit or os.path.normpath(os.path.join(bundle_dir, DEFAULT_CONFIG_PATH))
+    raw = read_from_base(repo, base_ref, path)
+    if raw is None and not explicit:
+        legacy = os.path.normpath(os.path.join(bundle_dir, LEGACY_CONFIG_PATH))
+        raw = read_from_base(repo, base_ref, legacy)
+        if raw is not None:
+            path = legacy
+            log(f"Using {legacy}; rename the folder to .lakehouse-review/ (the old name will stop working in v1.0)")
+    if raw is None:
+        if explicit:
+            raise ConfigError([f"config file `{path}` was not found on the base branch `{base_ref}`"], path)
+        return "defaults", {}
+    try:
+        cfg = yaml.safe_load(raw) or {}
+    except yaml.YAMLError as e:
+        raise ConfigError([f"`{path}` is not valid YAML: {str(e).splitlines()[0]}"], path) from None
+    if not isinstance(cfg, dict):
+        raise ConfigError([f"`{path}` must be a mapping of settings, not a {type(cfg).__name__}"], path)
+    log(f"Loaded {path} from {base_ref}")
+    unknown = sorted(set(cfg) - KNOWN_KEYS)
+    if unknown:
+        log(f"Ignoring unknown keys in {path}: {', '.join(unknown)}")
+    return path, cfg
 
 
 def _bool(v: Any) -> bool:

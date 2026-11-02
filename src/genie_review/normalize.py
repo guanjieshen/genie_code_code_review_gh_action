@@ -82,9 +82,7 @@ def _fact_kinds(f: Finding, facts: dict[str, Any]) -> set[str]:
     """What kind of evidence a finding stands on."""
     kinds = set()
     for e in f.evidence:
-        if e.startswith("genie_one:"):
-            kinds.add("genie_one")
-        elif e.startswith("ev:genie_one:"):
+        if e.startswith("ev:genie_one:"):
             g1 = facts.get(e) or {}
             if g1.get("status") == "answered":
                 kinds.add("genie_one")

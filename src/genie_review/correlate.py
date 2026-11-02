@@ -15,7 +15,7 @@ Ordering is deterministic and explainable. Issues are sorted by, in order:
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from .models import CATEGORIES, CONFIDENCE, MERGE_IMPACT, SEVERITIES, Finding
