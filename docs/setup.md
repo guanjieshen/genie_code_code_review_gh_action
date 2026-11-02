@@ -124,7 +124,7 @@ To avoid a long-lived secret, leave `client-secret` empty. The action then signs
 | **Azure** | Being validated. Some workspaces do not serve the default Genie Code model; use `genie-model` for a model the workspace serves, or `genie-host` for a workspace that serves it. |
 | **Google Cloud** | Not tested. |
 
-When you set `genie-host`, only the Genie Code model runs in that workspace. Evidence, Genie One, and data access stay on `databricks-host`. The reviewer needs a profile on both, which `genie-client-id` and `genie-client-secret` provide if it is a different principal.
+When you set `genie-host`, only the Genie Code model runs in that workspace. Evidence, Genie One, and data access stay on `databricks-host`. Add the reviewer service principal to both workspaces; it signs in to both with the same credentials.
 
 ## Locked-down networks
 

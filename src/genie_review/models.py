@@ -78,7 +78,7 @@ class Finding:
     line: int
     title: str
     explanation: str                # description: what is wrong
-    evidence: list[str]             # evidence ids (ev:...) or genie_one:<question>
+    evidence: list[str]             # evidence ids (ev:...)
     suggestion: str = ""            # recommendation
     model_confidence: float = 1.0   # Genie's self-reported score; only used to downgrade
     source: str = "deterministic"   # deterministic | genie

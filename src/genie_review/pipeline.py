@@ -18,7 +18,7 @@ from databricks.sdk import WorkspaceClient
 from . import __version__, capabilities, checks, evidence, genie, impact, ontology, prompt, publish, render
 from .access import classify
 from .correlate import correlate, needs_attention
-from .normalize import Policy, normalize, visible
+from .normalize import normalize, visible
 from .render import Review
 from .config import ConfigError, Settings
 from .models import Finding
@@ -79,177 +79,205 @@ def invalid_config(err: ConfigError, out_dir: Path, publish_to_github: bool) -> 
     return Result([], body, "Reviewer: not run.", url, failed=True, notes=err.problems)
 
 
-def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p: WorkspaceClient(profile=p),
-        publish_to_github: bool = True, reuse_evidence: str | None = None) -> Result:
-    s.out_dir.mkdir(parents=True, exist_ok=True)
+class Stop(Exception):
+    """A stage could not run: the review ends with this result."""
 
-    # ---- sign in
+    def __init__(self, result: Result):
+        self.result = result
+
+
+@dataclass
+class GenieStage:
+    """What the Genie Code review stage produced."""
+
+    findings: list[Finding] = field(default_factory=list)
+    summary: str = ""
+    ran: bool = False
+    status: str = "not needed"                     # not needed | ran | unavailable
+    route_note: str = "AI review engine: not needed. Exact checks only."
+
+
+def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p: WorkspaceClient(profile=p),
+        publish_to_github: bool = True) -> Result:
+    s.out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        w, principal = _sign_in(s, client_factory, publish_to_github)
+        imp = _impact(s, publish_to_github)
+        ev = _evidence(s, w, imp, principal)
+        notes: list[str] = []
+        questions, answers = _ontology(s, w, imp, ev, notes)
+        genie_one_status = ontology.summary(questions, answers, _ontology_on(s))
+        enabled = checks.enabled_checks(s.semantic, s.enable, s.disable)
+        plan, det = checks.plan(imp, ev, enabled), checks.deterministic(imp, ev, enabled)
+        write_json(s.out_dir / "plan.json", [p.__dict__ for p in plan])
+        log(f"{len(plan)} planned checks, {len(det)} deterministic findings")
+        stage = GenieStage()
+        if plan:
+            stage, det, genie_one_status = _genie_review(s, imp, ev, plan, det, answers, genie_one_status, notes, publish_to_github)
+    except Stop as stop:
+        return stop.result
+    return _report(s, imp, ev, plan, enabled, det, stage, genie_one_status, notes, publish_to_github)
+
+
+def _ontology_on(s: Settings) -> bool:
+    return s.semantic != "off"
+
+
+def _sign_in(s: Settings, client_factory: Callable[[str], WorkspaceClient], publish_to_github: bool) -> tuple[WorkspaceClient, str]:
     try:
         w = client_factory(s.profile)
-        me = w.current_user.me()
-        principal = me.user_name or "<reviewer-application-id>"
+        principal = w.current_user.me().user_name or "<reviewer-application-id>"
     except Exception as e:  # noqa: BLE001
-        return _problem(s, "Could not sign in to Databricks",
-                        f"Signing in with the reviewer identity failed: {classify(e)}.",
-                        ["Check that `databricks-host` is the workspace URL and that the client ID and secret "
-                         "(for example `LAKEHOUSE_REVIEW_CLIENT_ID` and `LAKEHOUSE_REVIEW_CLIENT_SECRET`) belong to the same service principal.",
-                         "Check that the service principal is added to this workspace and is active.",
-                         "If you use OIDC (no secret), add `id-token: write` to the workflow permissions and configure federation for the service principal."],
-                        publish_to_github)
+        raise Stop(_problem(s, "Could not sign in to Databricks",
+                            f"Signing in with the reviewer identity failed: {classify(e)}.",
+                            ["Check that `databricks-host` is the workspace URL and that the client ID and secret "
+                             "(for example `LAKEHOUSE_REVIEW_CLIENT_ID` and `LAKEHOUSE_REVIEW_CLIENT_SECRET`) belong to the same service principal.",
+                             "Check that the service principal is added to this workspace and is active.",
+                             "If you use OIDC (no secret), add `id-token: write` to the workflow permissions and configure federation for the service principal."],
+                            publish_to_github)) from None
     log(f"Signed in as {principal}")
+    return w, principal
 
-    # ---- impact analysis
+
+def _impact(s: Settings, publish_to_github: bool) -> impact.ImpactResult:
     try:
         with group("Analyze: impact"):
             imp = impact.analyze(s.repo, s.base_ref, s.profile, s.target, s.bundle_dir)
             write_json(s.out_dir / "impact.json", imp.graph.to_dict())
+            return imp
     except Exception as e:  # noqa: BLE001
-        return _problem(s, "Could not resolve the bundle",
-                        f"`databricks bundle validate` in `{s.bundle_dir}` (target `{s.target or 'default'}`) failed: {str(e)[-500:]}",
-                        [f"Check that `bundle-dir` (`{s.bundle_dir}`) contains `databricks.yml` and that `bundle-target` exists.",
-                         "The reviewer must be able to read anything the bundle looks up at validate time "
-                         "(for example `lookup` variables for warehouses, clusters, or service principals).",
-                         "Run `databricks bundle validate -t <target>` locally to see the full error."],
-                        publish_to_github)
+        raise Stop(_problem(s, "Could not resolve the bundle",
+                            f"`databricks bundle validate` in `{s.bundle_dir}` (target `{s.target or 'default'}`) failed: {str(e)[-500:]}",
+                            [f"Check that `bundle-dir` (`{s.bundle_dir}`) contains `databricks.yml` and that `bundle-target` exists.",
+                             "The reviewer must be able to read anything the bundle looks up at validate time "
+                             "(for example `lookup` variables for warehouses, clusters, or service principals).",
+                             "Run `databricks bundle validate -t <target>` locally to see the full error."],
+                            publish_to_github)) from None
 
-    # ---- evidence (each failed read becomes an access gap, never a crash)
+
+def _evidence(s: Settings, w: WorkspaceClient, imp: impact.ImpactResult, principal: str) -> evidence.Evidence:
+    """Each failed read becomes an access gap, never a crash."""
     with group("Analyze: evidence"):
         try:
             warehouse = evidence.pick_warehouse(w, s.warehouse_id)
         except Exception as e:  # noqa: BLE001
             warehouse = s.warehouse_id
             log(f"Could not list warehouses: {classify(e)}")
-        if reuse_evidence:
-            ev = evidence.Evidence(principal)
-            ev.facts = {k: v for k, v in json.load(open(reuse_evidence)).items() if not k.startswith("ev:genie_one:")}
-            log(f"Reusing {len(ev.facts)} evidence facts from {reuse_evidence}")
-        else:
-            ev = evidence.collect(w, imp, warehouse, principal)
+        ev = evidence.collect(w, imp, warehouse, principal)
         write_json(s.out_dir / "evidence.json", ev.facts)
+        return ev
 
-    notes: list[str] = []
 
-    # ---- ontology: plan business questions; answer from Unity Catalog; ask Genie One only in detailed mode
-    ontology_on = s.ontology and s.semantic != "off"
-    questions, answers = [], []
-    if ontology_on:
-        with group("Analyze: ontology"):
-            detailed = s.depth == "detailed"
-            questions = ontology.plan(imp, ev.facts, s.ontology_budget if detailed else 0)
-            if not detailed:
-                for q in questions:
-                    if q.status == "skipped_budget":
-                        q.status = "skipped_rapid"
-            elif any(q.status == "planned" for q in questions):
-                try:
-                    token = genie._token(s.profile)
-                    factory = lambda: ontology.GenieOne(w.config.host, token)  # noqa: E731
-                except Exception as e:  # noqa: BLE001
-                    factory = None
-                    ev.access.genie_one(classify(e))
-                answers = ontology.ask(questions, factory, ev.facts)
-                for a in answers:
-                    if a.status == "unavailable":          # permission problems are access gaps
-                        ev.access.genie_one(a.error)
-                    elif a.status == "error":              # anything else is an unresolved question, noted once
-                        notes.append(f"Genie One question failed: {a.error[:100]}")
-                ev.facts.update(ontology.to_evidence(questions, answers))
-            write_json(s.out_dir / "ontology.json", {"questions": [q.to_dict() for q in questions],
-                                                     "answers": [a.__dict__ for a in answers]})
-            log(f"Ontology: {len(questions)} planned, {len(answers)} asked")
-    genie_one_status = ontology.summary(questions, answers, ontology_on)
-
-    enabled = checks.enabled_checks(s.preset, s.semantic, s.enable, s.disable)
-    plan = checks.plan(imp, ev, enabled)
-    det = checks.deterministic(imp, ev, enabled)
-    write_json(s.out_dir / "plan.json", [p.__dict__ for p in plan])
-    log(f"{len(plan)} planned checks, {len(det)} deterministic findings")
-
-    # ---- Genie review (optional; exact checks above always post)
-    genie_ran = False
-    genie_code_status = "not needed"
-    gen: list[Finding] = []
-    summary = ""
-    route_note = "AI review engine: not needed. Exact checks only."
-    if plan:
-        with group("Analyze: Genie review"):
+def _ontology(s: Settings, w: WorkspaceClient, imp: impact.ImpactResult, ev: evidence.Evidence,
+              notes: list[str]) -> tuple[list, list]:
+    """Plan business questions; Unity Catalog answers what it can; Genie One is asked the rest in detailed mode."""
+    if not _ontology_on(s):
+        return [], []
+    with group("Analyze: ontology"):
+        detailed = s.depth == "detailed"
+        questions = ontology.plan(imp, ev.facts, s.ontology_budget if detailed else 0)
+        answers = []
+        if not detailed:
+            for q in questions:
+                if q.status == "skipped_budget":
+                    q.status = "skipped_rapid"
+        elif any(q.status == "planned" for q in questions):
             try:
-                route, route_notes = genie.resolve_route(s)
+                token = genie._token(s.profile)
+                factory = lambda: ontology.GenieOne(w.config.host, token)  # noqa: E731
             except Exception as e:  # noqa: BLE001
-                route, route_notes = None, [classify(e)]
-            if route is None:
-                genie_code_status = "unavailable"
-                ev.access.genie_code(route_notes)
-                if s.on_model_unavailable == "fail":
-                    return _problem(s, "Genie Code model unavailable", "; ".join(route_notes), [ev.access.gaps[-1].fix], publish_to_github)
-                route_note = "AI review engine: unavailable (no Genie Code model was reachable). Exact checks only."
-                verdicts, _ = ontology.reconcile(ev.facts, [], [], publish.clean, Finding)   # nobody judged the answers
-                vs = ontology.verdict_summary(verdicts)
-                if vs:
-                    genie_one_status = {**genie_one_status, "detail": f"{genie_one_status.get('detail', '')}; {vs}"}
-                if s.on_model_unavailable == "skip":
-                    det = []
-            else:
-                # Genie One is driven by the ontology planner; the agent only gets its own Genie One access when the planner is off
-                use_g1 = (not ontology_on and s.depth == "detailed" and s.semantic == "genie-one"
-                          and any(p.check.startswith(("semantic.", "governance.")) for p in plan))
-                referenced: dict[str, set[str]] = {}
-                for r in imp.refs.values():
-                    for t, cols in r.columns.items():
-                        referenced.setdefault(t, set()).update(cols)
-                    for j in r.joins:
-                        for t, c in (j["left"], j["right"]):
-                            referenced.setdefault(t, set()).add(c)
-                facts_for_prompt = ev.facts if s.depth == "detailed" else prompt.compact(ev.facts, referenced)
-                diff = pr_diff(s, limit=40_000 if s.depth == "detailed" else 15_000)
-                try:
-                    text = prompt.compose(s.base_ref, plan, imp.graph.to_dict(), facts_for_prompt, det, s.instructions, use_g1, diff)
-                    (s.out_dir / "prompt.md").write_text(text)
-                    schema = s.out_dir / "findings.schema.json"
-                    schema.write_text(prompt.resource_text("findings.schema.json"))
-                    gr = genie.run_review(s, route, text, schema, use_g1)
-                except Exception as e:  # noqa: BLE001
-                    gr = genie.GenieRun(route, error=classify(e))
-                genie_ran = gr.output is not None
-                genie_code_status = "ran" if genie_ran else "unavailable"
-                if gr.mcp_questions:  # only when the planner is off and the agent used Genie One itself
-                    genie_one_status = {"status": "Ran", "detail": f"{len(gr.mcp_questions)} question(s) asked by Genie Code"}
-                if gr.error:
-                    notes.append(f"Genie review incomplete: {gr.error}")
-                for err in gr.mcp_errors:
-                    ev.access.genie_one(err)
-                gen, gnotes, summary = publish.genie_findings(gr, plan, set(ev.facts), s.min_confidence)
-                notes += gnotes
-                if answers:  # every answered ontology question gets a verdict; conflicts cannot be dropped
-                    verdicts, added = ontology.reconcile(ev.facts, (gr.output or {}).get("ontology_verdicts", []), gen,
-                                                         publish.clean, Finding)
-                    gen += added
-                    write_json(s.out_dir / "verdicts.json", [v.__dict__ for v in verdicts])
-                    vs = ontology.verdict_summary(verdicts)
-                    if vs:
-                        genie_one_status = {**genie_one_status, "detail": f"{genie_one_status.get('detail', '')}; {vs}",
-                                            "verdicts": [v.__dict__ for v in verdicts]}
-                if gr.output and gr.output.get("injection_attempts"):
-                    notes.append(f"{len(gr.output['injection_attempts'])} possible prompt-injection attempt(s) ignored")
-                g1_calls = len(answers) + len(gr.mcp_questions)
-                route_note = (f"Analysis depth: {s.depth}. AI review engine: Genie Code `{route.model}` via {route.label}. "
-                              + (f"Genie One: {g1_calls} question(s)." if g1_calls else "Genie One: not called."))
-                write_json(s.out_dir / "genie_output.json", gr.output or {"error": gr.error})
+                factory = None
+                ev.access.genie_one(classify(e))
+            answers = ontology.ask(questions, factory, ev.facts)
+            for a in answers:
+                if a.status == "unavailable":          # permission problems are access gaps
+                    ev.access.genie_one(a.error)
+                elif a.status == "error":              # anything else is an unresolved question, noted once
+                    notes.append(f"Genie One question failed: {a.error[:100]}")
+            ev.facts.update(ontology.to_evidence(questions, answers))
+        write_json(s.out_dir / "ontology.json", {"questions": [q.to_dict() for q in questions],
+                                                 "answers": [a.__dict__ for a in answers]})
+        log(f"Ontology: {len(questions)} planned, {len(answers)} asked")
+        return questions, answers
 
-    # ---- process results: normalize -> filter -> correlate -> prioritize
-    findings = publish.merge(det, gen, s.severity)
-    normalize(findings, ev.facts, Policy(s.block_severities, s.block_min_confidence, s.block_categories))
-    shown = [f for f in findings if visible(f, s.categories, s.min_severity, s.show_low_confidence, s.include_info)]
-    groups = correlate(shown, ev.facts, s.group_related)[: s.max_findings]
-    priority = needs_attention(groups, s.max_priority, s.prominent_min_confidence)
 
-    # ---- report
+def _with_verdicts(status: dict, verdicts: list) -> dict:
+    vs = ontology.verdict_summary(verdicts)
+    return {**status, "detail": f"{status.get('detail', '')}; {vs}", "verdicts": [v.__dict__ for v in verdicts]} if vs else status
+
+
+def _genie_review(s: Settings, imp: impact.ImpactResult, ev: evidence.Evidence, plan: list, det: list[Finding],
+                  answers: list, genie_one_status: dict, notes: list[str], publish_to_github: bool):
+    """Genie Code reviews the planned checks. If no model is reachable, the exact checks still post."""
+    stage = GenieStage()
+    with group("Analyze: Genie review"):
+        try:
+            route, route_notes = genie.resolve_route(s)
+        except Exception as e:  # noqa: BLE001
+            route, route_notes = None, [classify(e)]
+        if route is None:
+            stage.status = "unavailable"
+            ev.access.genie_code(route_notes)
+            stage.route_note = "AI review engine: unavailable (no Genie Code model was reachable). Exact checks only."
+            verdicts, _ = ontology.reconcile(ev.facts, [], [], publish.clean, Finding)   # nobody judged the answers
+            return stage, det, _with_verdicts(genie_one_status, verdicts)
+
+        detailed = s.depth == "detailed"
+        facts = ev.facts if detailed else prompt.compact(ev.facts, _referenced_columns(imp))
+        try:
+            text = prompt.compose(s.base_ref, plan, imp.graph.to_dict(), facts, det, s.instructions,
+                                  pr_diff(s, limit=40_000 if detailed else 15_000))
+            (s.out_dir / "prompt.md").write_text(text)
+            schema = s.out_dir / "findings.schema.json"
+            schema.write_text(prompt.resource_text("findings.schema.json"))
+            gr = genie.run_review(s, route, text, schema)
+        except Exception as e:  # noqa: BLE001
+            gr = genie.GenieRun(route, error=classify(e))
+        write_json(s.out_dir / "genie_output.json", gr.output or {"error": gr.error})
+        stage.ran = gr.output is not None
+        stage.status = "ran" if stage.ran else "unavailable"
+        if gr.error:
+            notes.append(f"Genie review incomplete: {gr.error}")
+        stage.findings, gnotes, stage.summary = publish.genie_findings(gr, plan, set(ev.facts))
+        notes += gnotes
+        if answers:  # every answered ontology question gets a verdict; conflicts cannot be dropped
+            verdicts, added = ontology.reconcile(ev.facts, (gr.output or {}).get("ontology_verdicts", []), stage.findings,
+                                                 publish.clean, Finding)
+            stage.findings += added
+            write_json(s.out_dir / "verdicts.json", [v.__dict__ for v in verdicts])
+            genie_one_status = _with_verdicts(genie_one_status, verdicts)
+        if gr.output and gr.output.get("injection_attempts"):
+            notes.append(f"{len(gr.output['injection_attempts'])} possible prompt-injection attempt(s) ignored")
+        stage.route_note = (f"Analysis depth: {s.depth}. AI review engine: Genie Code `{route.model}` via {route.label}. "
+                            + (f"Genie One: {len(answers)} question(s)." if answers else "Genie One: not called."))
+    return stage, det, genie_one_status
+
+
+def _referenced_columns(imp: impact.ImpactResult) -> dict[str, set[str]]:
+    """Columns the code uses, per table: rapid mode keeps only these in the prompt."""
+    out: dict[str, set[str]] = {}
+    for r in imp.refs.values():
+        for t, cols in r.columns.items():
+            out.setdefault(t, set()).update(cols)
+        for j in r.joins:
+            for t, c in (j["left"], j["right"]):
+                out.setdefault(t, set()).add(c)
+    return out
+
+
+def _report(s: Settings, imp: impact.ImpactResult, ev: evidence.Evidence, plan: list, enabled: set[str], det: list[Finding],
+            stage: GenieStage, genie_one_status: dict, notes: list[str], publish_to_github: bool) -> Result:
+    """Normalize, filter, group, and prioritize the findings, then render and publish the review."""
+    findings = publish.merge(det, stage.findings, s.severity)
+    normalize(findings, ev.facts)
+    groups = correlate([f for f in findings if visible(f)], ev.facts)[: s.max_findings]
     review = Review(
-        summary=summary or publish.fallback_summary(imp), groups=groups, priority=priority, findings=findings,
+        summary=stage.summary or publish.fallback_summary(imp), groups=groups,
+        priority=needs_attention(groups), findings=findings,
         hidden=len(findings) - sum(len(g.findings) for g in groups),
-        coverage=checks.coverage(plan, findings, enabled, ev, genie_ran),
-        capabilities=capabilities.build(imp.graph.to_dict(), ev.facts, findings, ev.gaps, genie_code_status, genie_one_status),
-        facts=ev.facts, access_md=ev.access.render(), access_count=len(ev.access.gaps), route_note=route_note, notes=notes)
+        coverage=checks.coverage(plan, findings, enabled, ev, stage.ran),
+        capabilities=capabilities.build(imp.graph.to_dict(), ev.facts, findings, ev.gaps, stage.status, genie_one_status),
+        facts=ev.facts, access_md=ev.access.render(), access_count=len(ev.access.gaps), route_note=stage.route_note, notes=notes)
     ctx = link_context(s)
     body, comment = render.markdown(review, ctx), render.fit_comment(review, ctx)
     if comment != body:
@@ -258,7 +286,7 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
     url = _publish(s, body, findings, publish_to_github, comment, render.outputs(review))
     if ev.access.gaps:
         print(f"::warning title=Lakehouse Review::The reviewer could not read {len(ev.access.gaps)} thing(s). See the PR comment for the grants to add.")
-    return Result(findings, body, route_note, url, publish.should_fail(findings, s.fail_on), notes)
+    return Result(findings, body, stage.route_note, url, publish.should_fail(findings, s.fail_on), notes)
 
 
 def pr_diff(s: Settings, limit: int) -> str:

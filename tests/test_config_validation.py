@@ -24,13 +24,12 @@ def _load(r, **kw):
 
 
 def test_all_problems_are_reported_together(tmp_path):
-    r = _repo(tmp_path, "fail_on: low\nlimits: {max_findings: lots}\nreport: {min_severity: urgent, categories: [contracts, vibes]}\n"
+    r = _repo(tmp_path, "fail_on: low\nmax_findings: lots\n"
                         "checks: {severity: {deploy.drift: huge}}\nontology: {max_questions: 99}\n")
     with pytest.raises(config.ConfigError) as e:
         _load(r, depth="deep")
     text = "\n".join(e.value.problems)
-    for needle in ("fail-on", "analysis-depth", "limits.max_findings", "report.min_severity", "vibes",
-                   "checks.severity.deploy.drift", "ontology.max_questions"):
+    for needle in ("fail-on", "analysis-depth", "max_findings", "checks.severity.deploy.drift", "ontology.max_questions"):
         assert needle in text, needle
     assert e.value.source == ".lakehouse-review/config.yml"
 
@@ -52,9 +51,14 @@ def test_missing_explicit_config_file_is_an_error(tmp_path):
         _load(_repo(tmp_path, None), config_file="ci/review.yml")
 
 
-def test_valid_config_still_loads(tmp_path):
-    s = _load(_repo(tmp_path, "fail_on: blocker\nreport: {max_priority: 2}\nunknown_key: 1\n"))
-    assert s.fail_on == "blocker" and s.max_priority == 2
+def test_valid_config_loads(tmp_path):
+    s = _load(_repo(tmp_path, "fail_on: blocker\nmax_findings: 5\nontology: {max_questions: 2}\ngenie: {model: m}\n"))
+    assert (s.fail_on, s.max_findings, s.ontology_budget, s.genie_model) == ("blocker", 5, 2, "m")
+
+
+def test_unknown_or_removed_settings_fail_clearly(tmp_path):
+    with pytest.raises(config.ConfigError, match="unknown settings: merge_policy, report"):
+        _load(_repo(tmp_path, "report: {max_priority: 2}\nmerge_policy: {block_severities: [high]}\n"))
 
 
 def test_cli_posts_problem_and_fails(tmp_path, capsys):

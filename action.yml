@@ -52,24 +52,8 @@ inputs:
     description: Separate workspace that serves the Genie Code model, when the target workspace does not. Data and evidence stay on databricks-host.
     required: false
     default: ""
-  genie-client-id:
-    description: Service principal for genie-host. Defaults to client-id.
-    required: false
-    default: ""
-  genie-client-secret:
-    description: OAuth secret for genie-host. Defaults to client-secret.
-    required: false
-    default: ""
-  on-model-unavailable:
-    description: What to do if no Genie Code model is reachable. `deterministic` (post exact checks only), `skip`, or `fail`.
-    required: false
-    default: ""
   config-file:
-    description: Path to the repo config file (read from the base branch). Defaults to .lakehouse-review/config.yml in bundle-dir (.genie-review/ is still read).
-    required: false
-    default: ""
-  instructions:
-    description: Extra team context for the reviewer, appended to the base-branch instructions file.
+    description: Path to the repo config file (read from the base branch). Defaults to .lakehouse-review/config.yml in bundle-dir.
     required: false
     default: ""
   python-index-url:
@@ -149,7 +133,6 @@ runs:
         SEMANTIC: ${{ inputs.semantic }}
         FAIL_ON: ${{ inputs.fail-on }}
         FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
-        ON_MODEL_UNAVAILABLE: ${{ inputs.on-model-unavailable }}
         UPLOAD: ${{ inputs.upload-artifacts }}
         PY_INDEX: ${{ inputs.python-index-url }}
         GENIE_VERSION: ${{ inputs.genie-version }}
@@ -172,7 +155,6 @@ runs:
         one_of analysis-depth "$DEPTH" rapid detailed
         one_of fail-on "$FAIL_ON" none blocker critical high medium
         one_of fail-on-error "$FAIL_ON_ERROR" true false
-        one_of on-model-unavailable "$ON_MODEL_UNAVAILABLE" deterministic skip fail
         one_of upload-artifacts "$UPLOAD" true false
         [[ -z "$SEMANTIC" || "$SEMANTIC" == genie-one || "$SEMANTIC" == off ]] || bad "\`semantic\` must be \`genie-one\` or \`off\`. Got \`$SEMANTIC\`."
         [[ "$GENIE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || bad "\`genie-version\` must be a release tag such as \`v0.2.0\`. Got \`$GENIE_VERSION\`."
@@ -219,8 +201,6 @@ runs:
         CLIENT_ID: ${{ inputs.client-id }}
         CLIENT_SECRET: ${{ inputs.client-secret }}
         GENIE_HOST: ${{ inputs.genie-host }}
-        GENIE_CLIENT_ID: ${{ inputs.genie-client-id }}
-        GENIE_CLIENT_SECRET: ${{ inputs.genie-client-secret }}
       run: |
         set -euo pipefail
         cfg="${RUNNER_TEMP}/databrickscfg"
@@ -240,7 +220,7 @@ runs:
         {
           profile lakehouse-review "$HOST" "$CLIENT_ID" "$CLIENT_SECRET"
           if [[ -n "$GENIE_HOST" ]]; then
-            profile lakehouse-review-model "$GENIE_HOST" "${GENIE_CLIENT_ID:-$CLIENT_ID}" "${GENIE_CLIENT_SECRET:-$CLIENT_SECRET}"
+            profile lakehouse-review-model "$GENIE_HOST" "$CLIENT_ID" "$CLIENT_SECRET"
           fi
         } > "$cfg"
         chmod 600 "$cfg"
@@ -288,9 +268,7 @@ runs:
         FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
         GENIE_MODEL: ${{ inputs.genie-model }}
         GENIE_HOST: ${{ inputs.genie-host }}
-        ON_MODEL_UNAVAILABLE: ${{ inputs.on-model-unavailable }}
         CONFIG_FILE: ${{ inputs.config-file }}
-        INSTRUCTIONS: ${{ inputs.instructions }}
       run: |
         set -euo pipefail
         args=(run --repo "$GITHUB_WORKSPACE" --base-ref "origin/$BASE_REF" --profile lakehouse-review
@@ -304,8 +282,6 @@ runs:
         [[ -n "$FAIL_ON_ERROR" ]] && args+=(--fail-on-error "$FAIL_ON_ERROR")
         [[ -n "$GENIE_MODEL" ]] && args+=(--genie-model "$GENIE_MODEL")
         [[ -n "$GENIE_HOST" ]] && args+=(--genie-profile lakehouse-review-model)
-        [[ -n "$ON_MODEL_UNAVAILABLE" ]] && args+=(--on-model-unavailable "$ON_MODEL_UNAVAILABLE")
-        [[ -n "$INSTRUCTIONS" ]] && args+=(--instructions "$INSTRUCTIONS")
         PYTHONPATH="$GITHUB_ACTION_PATH/src" "$GENIE_REVIEW_PYTHON" -m genie_review.cli "${args[@]}"
 
     - name: "Publish: explain setup failure on the pull request"

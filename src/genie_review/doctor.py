@@ -1,8 +1,8 @@
 """`lakehouse-review doctor`: check everything the review needs, and say how to fix what is missing.
 
 Run it with the reviewer identity's profile. Each check is independent, so one failure does not hide the rest.
-Exit code is 1 only when the review cannot produce useful results (sign-in, bundle, or no Genie Code route
-with `on-model-unavailable: fail`); partial setups exit 0 with warnings.
+Exit code is 1 only when the review cannot produce useful results (sign-in or bundle problems);
+partial setups exit 0 with warnings.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Callable
 from databricks.sdk import WorkspaceClient
 
 from . import bundle as bdl
-from . import genie
+from . import genie, ontology
 from .config import Settings
 from .evidence import pick_warehouse
 from .ontology import GenieOne
@@ -81,7 +81,7 @@ def run(s: Settings, client: Callable[[str], WorkspaceClient] = lambda p: Worksp
     if route:
         out.append(Result("Genie Code", OK, f"`{route.model}` via {route.label} ({route.host})"))
     else:
-        out.append(Result("Genie Code", FAIL if s.on_model_unavailable == "fail" else WARN, "; ".join(notes)[:300],
+        out.append(Result("Genie Code", WARN, "; ".join(notes)[:300],
                           "Allow the reviewer to use Genie Code through Unity Gateway, set genie-model to a served model, "
                           "or set genie-host to a workspace that serves it. Exact checks still run without it."))
 
@@ -90,7 +90,7 @@ def run(s: Settings, client: Callable[[str], WorkspaceClient] = lambda p: Worksp
     else:
         try:
             tools = GenieOne(w.config.host, genie._token(s.profile)).tools()
-            missing = sorted(set(genie.GENIE_ONE_TOOLS) - set(tools))
+            missing = sorted(set(ontology.GENIE_ONE_TOOLS) - set(tools))
             out.append(Result("Genie One", WARN if missing else OK,
                               f"missing tools: {', '.join(missing)}" if missing else "reachable",
                               "Update the Genie One MCP server or set semantic: off." if missing else ""))

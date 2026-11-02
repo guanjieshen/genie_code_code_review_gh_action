@@ -1,6 +1,6 @@
 from genie_review.checks import coverage, deterministic, enabled_checks, plan
 
-ALL = enabled_checks("core", "genie-one", [], [])
+ALL = enabled_checks("genie-one", [], [])
 
 
 def by_check(findings):
@@ -12,8 +12,8 @@ def by_check(findings):
 
 def test_enabled_checks_respects_semantic_and_disable():
     assert "semantic.metric-definition-drift" in ALL
-    assert "semantic.metric-definition-drift" not in enabled_checks("core", "off", [], [])
-    assert "deploy.drift" not in enabled_checks("core", "genie-one", [], ["deploy.drift"])
+    assert "semantic.metric-definition-drift" not in enabled_checks("off", [], [])
+    assert "deploy.drift" not in enabled_checks("genie-one", [], ["deploy.drift"])
 
 
 def test_planner_only_plans_relevant_checks(scenario):

@@ -30,6 +30,8 @@ jobs:
           uv lock --check
           uv export --frozen --no-dev --no-emit-project --format requirements-txt -q -o /tmp/requirements.lock
           diff <(grep -v '^ *#' /tmp/requirements.lock) <(grep -v '^ *#' requirements.lock) || { echo "::error::requirements.lock is out of date. Run: uv export --frozen --no-dev --no-emit-project --format requirements-txt -o requirements.lock"; exit 1; }
+      - name: Lint
+        run: uvx ruff@0.17.2 check --select F,E9 src scripts tests
       - name: Unit tests
         run: uv run --frozen pytest -q
 

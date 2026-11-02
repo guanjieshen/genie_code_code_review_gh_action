@@ -60,7 +60,7 @@ def _exact(rule: str, p: dict[str, Any]) -> dict[str, str]:
             title=f"Joins `{lc}` ({ltype}) to `{rc}` ({rtype})",
             description=f"`{short(lt)}.{lc}` is {ltype} and `{short(rt)}.{rc}` is {rtype}, so Spark casts one side implicitly.",
             impact=f"If any `{string_side}` value is not numeric, it becomes NULL and those rows drop out of the join.",
-            recommendation=f"Cast both sides to one type explicitly, or align the column types at the source.")
+            recommendation="Cast both sides to one type explicitly, or align the column types at the source.")
     if rule == "contract.write-schema":
         t = short(p["table"])
         removed, added = p.get("removed", []), p.get("added", [])
@@ -109,7 +109,7 @@ DEFAULT_RECOMMENDATION = {
 def validation_note(rule: str, confidence: str, p: dict[str, Any], anchored: bool) -> str:
     """What a developer still needs to check, for findings that are not confirmed."""
     if rule == "contract.type-mismatch" and p.get("left") and p.get("right"):
-        (lt, lc, ltype), (rt, rc, rtype) = p["left"], p["right"]
+        (lt, lc, _), (rt, rc, rtype) = p["left"], p["right"]
         col = f"{short(rt)}.{rc}" if rtype.lower().startswith("string") else f"{short(lt)}.{lc}"
         return f"Check whether every `{col}` value is numeric. If so, no rows are lost; the explicit cast is still recommended."
     if confidence in ("confirmed", "high"):

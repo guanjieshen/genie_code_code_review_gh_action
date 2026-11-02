@@ -3,7 +3,7 @@
 from genie_review import ontology
 from genie_review.correlate import correlate
 from genie_review.models import Finding
-from genie_review.normalize import Policy, normalize
+from genie_review.normalize import normalize
 
 C = "main.shop"
 
@@ -87,7 +87,7 @@ def test_unsourced_ontology_answer_cannot_create_a_confident_finding():
     facts = {f"ev:uc:{C}.customers:metadata": {"exists": True}}
     facts.update(ontology.to_evidence([q], ontology.ask([q], _FakeGenieOne("They are different systems."), facts)))
     f = _identifier_finding("ev:genie_one:q-1")
-    normalize([f], facts, Policy())
+    normalize([f], facts)
     assert f.confidence == "low" and f.merge_impact == "informational"
 
 
@@ -100,7 +100,7 @@ def test_authoritative_ontology_answer_supports_the_finding_and_groups_with_type
     onto = _identifier_finding("ev:genie_one:q-1")
     tm = Finding("contract.type-mismatch", "medium", "a.sql", 9, "Joins types", "e",
                  [f"ev:uc:{C}.orders:metadata", f"ev:uc:{C}.customers:metadata"])
-    normalize([onto, tm], facts, Policy())
+    normalize([onto, tm], facts)
     assert onto.confidence == "high" and "Genie One" in onto.detected_by
     groups = correlate([onto, tm], facts)
     assert len(groups) == 1 and groups[0].primary.check == "ontology.identifier-relationship"   # one issue, not two
@@ -223,7 +223,7 @@ def test_missing_verdict_is_unresolved_and_conflict_becomes_a_finding():
     assert "ev:genie_one:unknown" not in by                         # verdicts must refer to answered questions
     assert len(added) == 1 and added[0].check == "correctness.aggregation-grain"
     assert (added[0].file, added[0].line) == ("src/q.sql", 4)        # falls back to the question's location
-    normalize(added, facts, Policy())
+    normalize(added, facts)
     assert added[0].confidence == "high"                            # authoritative answer + its query results
     assert "verdicts: 1 conflict, 0 no conflict, 0 unclear, 1 unresolved" == ontology.verdict_summary(verdicts)
 
@@ -236,7 +236,7 @@ def test_conflict_with_a_matching_finding_is_not_duplicated_and_unsourced_stays_
     _, added = ontology.reconcile(facts, raw, [existing], clean, Finding)
     assert added == []
     _, added = ontology.reconcile(facts, raw, [], clean, Finding)
-    normalize(added, facts, Policy())
+    normalize(added, facts)
     assert added[0].confidence == "low"                             # an unsourced answer cannot create a confident finding
 
 
@@ -260,13 +260,13 @@ def test_findings_are_linked_to_the_answer_they_rely_on_and_verdicts_stay_consis
     verdicts, added = ontology.reconcile(facts, raw, [f], clean, Finding)
     assert "ev:genie_one:p" in f.evidence and added == []
     assert verdicts[0].verdict == "conflict"                 # the reported finding and the verdict agree
-    normalize([f], facts, Policy())
+    normalize([f], facts)
     assert f.confidence == "high"
 
 
 def test_prompt_carries_the_pr_diff_as_fenced_data():
     from genie_review import prompt
-    text = prompt.compose("main", [], {}, {}, [], "", False, diff="+JOIN orders o ON c.c_custkey = o.o_orderkey")
+    text = prompt.compose("main", [], {}, {}, [], "", diff="+JOIN orders o ON c.c_custkey = o.o_orderkey")
     assert "PR DIFF" in text and "c.c_custkey = o.o_orderkey" in text
     body = text.rsplit("PR DIFF (", 1)[1]
     assert body.count('<data id="') == 1                              # inside one delimited data block

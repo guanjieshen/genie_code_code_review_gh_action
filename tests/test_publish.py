@@ -13,9 +13,8 @@ def _gf(**kw):
     return base
 
 
-def _run(findings, questions=()):
-    return GenieRun(route=None, output={"impact_summary": "s", "findings": findings, "injection_attempts": []},
-                    mcp_questions=list(questions))
+def _run(findings):
+    return GenieRun(route=None, output={"impact_summary": "s", "findings": findings, "injection_attempts": []})
 
 
 def test_clean_strips_links_images_html_and_mentions():
@@ -29,22 +28,16 @@ def test_grounding_keeps_cited_and_drops_uncited_or_unplanned():
         _gf(),
         _gf(title="made up", evidence=["ev:does:not:exist"]),
         _gf(check="deploy.drift", title="unplanned"),
-        _gf(check="semantic.metric-definition-drift", title="via genie one", evidence=["genie_one:What is net revenue?"]),
-    ], questions=["What is net revenue?"])
-    kept, notes, _ = genie_findings(run, PLAN, EV, 0.6)
-    assert [f.title for f in kept] == ["PII copied", "via genie one"]
+        _gf(check="semantic.metric-definition-drift", title="cites a question it asked itself", evidence=["genie_one:What is net revenue?"]),
+    ])
+    kept, notes, _ = genie_findings(run, PLAN, EV)
+    assert [f.title for f in kept] == ["PII copied"]           # only evidence the action collected counts
     assert any("ungrounded" in n for n in notes) and any("not planned" in n for n in notes)
-
-
-def test_genie_one_citation_requires_a_question_actually_asked():
-    run = _run([_gf(check="semantic.metric-definition-drift", evidence=["genie_one:Never asked"])], questions=[])
-    kept, _, _ = genie_findings(run, PLAN, EV, 0.6)
-    assert kept == []
 
 
 def test_schema_violation_is_reported_not_raised():
     run = GenieRun(route=None, output={"findings": "nope"})
-    kept, notes, _ = genie_findings(run, PLAN, EV, 0.6)
+    kept, notes, _ = genie_findings(run, PLAN, EV)
     assert kept == [] and "schema" in notes[0]
 
 

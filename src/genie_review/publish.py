@@ -35,7 +35,7 @@ def clean(text: str, limit: int = 1200) -> str:
 # ------------------------------------------------------------------ validate + ground
 
 
-def genie_findings(run: GenieRun, plan: list[PlanItem], evidence_ids: set[str], min_conf: float) -> tuple[list[Finding], list[str], str]:
+def genie_findings(run: GenieRun, plan: list[PlanItem], evidence_ids: set[str]) -> tuple[list[Finding], list[str], str]:
     if not run.output:
         return [], [], ""
     run.output.setdefault("ontology_verdicts", [])   # older outputs had no verdicts
@@ -45,18 +45,12 @@ def genie_findings(run: GenieRun, plan: list[PlanItem], evidence_ids: set[str], 
     except jsonschema.ValidationError as e:
         return [], [f"Genie output failed schema validation: {e.message[:120]}"], ""
     planned = {p.check for p in plan}
-    asked = [q.lower() for q in run.mcp_questions]
     out = []
     for f in run.output["findings"]:
         if f["check"] not in planned:
             notes.append(f"dropped `{f['check']}` finding (check not planned)")
             continue
-        grounded = []
-        for e in f["evidence"]:
-            if e in evidence_ids:
-                grounded.append(e)
-            elif e.startswith("genie_one:") and any(e[10:].strip().lower()[:50] in q or q[:50] in e.lower() for q in asked):
-                grounded.append(e)
+        grounded = [e for e in f["evidence"] if e in evidence_ids]
         if not grounded:
             notes.append(f"dropped ungrounded finding: {f['title'][:60]}")
             continue

@@ -87,9 +87,9 @@ def test_doctor_fails_fast_on_sign_in(tmp_path):
     assert doctor.exit_code(res) == 1
 
 
-def test_doctor_model_failure_is_fatal_only_when_configured(monkeypatch, tmp_path):
+def test_doctor_model_failure_is_a_warning(monkeypatch, tmp_path):
     monkeypatch.setattr(doctor, "schemas_in_bundle", lambda *a: (set(), {}))
     monkeypatch.setattr(doctor.bdl, "deployed_ids", lambda *a: ({"jobs": {"x": "1"}}, "deployed", ""))
     monkeypatch.setattr(doctor.genie, "resolve_route", lambda s: (None, ["unavailable"]))
-    res = doctor.run(_settings(tmp_path, on_model_unavailable="fail", semantic="off"), client=lambda p: FakeWorkspace())
-    assert {r.name: r.status for r in res}["Genie Code"] == "FAIL" and doctor.exit_code(res) == 1
+    res = doctor.run(_settings(tmp_path, semantic="off"), client=lambda p: FakeWorkspace())
+    assert {r.name: r.status for r in res}["Genie Code"] == "WARN" and doctor.exit_code(res) == 0   # exact checks still run

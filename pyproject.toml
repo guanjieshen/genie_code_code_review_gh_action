@@ -1,6 +1,6 @@
 [project]
 name = "lakehouse-review"
-version = "0.4.1"
+version = "0.5.0"
 license = { file = "LICENSE" }
 description = "Lakehouse Review: Databricks-aware code reviews with Genie-powered semantic analysis."
 readme = "README.md"
@@ -15,7 +15,6 @@ dependencies = [
 
 [project.scripts]
 lakehouse-review = "genie_review.cli:main"
-genie-review = "genie_review.cli:main"   # deprecated alias
 
 [dependency-groups]
 dev = ["pytest>=8"]

@@ -15,7 +15,7 @@ Ordering is deterministic and explainable. Issues are sorted by, in order:
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from .models import CATEGORIES, CONFIDENCE, MERGE_IMPACT, SEVERITIES, Finding
@@ -161,11 +161,10 @@ def _member_order(f: Finding) -> tuple:
             SEVERITIES.index(f.severity), CONFIDENCE.index(f.confidence), 0 if f.source == "deterministic" else 1, f.check)
 
 
-def correlate(findings: list[Finding], facts: dict[str, Any], group_related: bool = True) -> list[Group]:
+def correlate(findings: list[Finding], facts: dict[str, Any]) -> list[Group]:
     buckets: dict[str, list[Finding]] = {}
     for f in findings:
-        key = root_cause_key(f, facts) if group_related else f"finding:{f.id}"
-        buckets.setdefault(key, []).append(f)
+        buckets.setdefault(root_cause_key(f, facts), []).append(f)
     groups = []
     for key, fs in buckets.items():
         fs.sort(key=_member_order)
@@ -180,8 +179,6 @@ def correlate(findings: list[Finding], facts: dict[str, Any], group_related: boo
     return groups
 
 
-def needs_attention(groups: list[Group], limit: int, min_confidence: str) -> list[Group]:
-    """Top issues shown fully at the top of the report: blockers and required actions with enough evidence."""
-    picked = [g for g in groups if g.merge_impact in ("blocker", "action_required")
-              and CONFIDENCE.index(g.confidence) <= CONFIDENCE.index(min_confidence)]
-    return picked[:limit]
+def needs_attention(groups: list[Group], limit: int = 3) -> list[Group]:
+    """Top issues shown fully at the top of the report: blockers and required actions with at least high confidence."""
+    return [g for g in groups if g.merge_impact in ("blocker", "action_required") and g.confidence in ("confirmed", "high")][:limit]
