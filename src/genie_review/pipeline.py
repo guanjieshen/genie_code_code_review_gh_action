@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -284,9 +285,41 @@ def _report(s: Settings, imp: impact.ImpactResult, ev: evidence.Evidence, plan: 
         log(f"report is {len(body)} characters; the PR comment was shortened to fit GitHub's limit")
     write_json(s.out_dir / "review.json", render.to_json(review, __version__))
     url = _publish(s, body, findings, publish_to_github, comment, render.outputs(review))
+    if publish_to_github and s.inline_comments:
+        _comment_on_lines(s, groups)
     if ev.access.gaps:
         print(f"::warning title=Lakehouse Review::The reviewer could not read {len(ev.access.gaps)} thing(s). See the PR comment for the grants to add.")
     return Result(findings, body, stage.route_note, url, publish.should_fail(findings, s.fail_on), notes)
+
+
+def _comment_on_lines(s: Settings, groups: list) -> None:
+    """Comment on the code line of each issue that is part of the diff. Never fails the review."""
+    lines = commentable_lines(s)
+    comments = [{"path": g.primary.file, "line": g.primary.line, "body": render.inline_body(g)}
+                for g in groups if g.primary.line in lines.get(g.primary.file, set())]
+    try:
+        log(f"{publish.post_inline(comments)} new comment(s) on code lines; {len(groups) - len(comments)} issue(s) are not on a changed line")
+    except Exception as e:  # noqa: BLE001
+        log(f"Could not comment on code lines: {classify(e)}")
+
+
+def commentable_lines(s: Settings) -> dict[str, set[int]]:
+    """Lines of the head version that GitHub accepts comments on: every line inside a diff hunk."""
+    try:
+        diff = sh(["git", "diff", "--unified=3", f"{s.base_ref}...HEAD", "--", s.bundle_dir], cwd=s.repo)
+    except Exception:  # noqa: BLE001
+        return {}
+    out: dict[str, set[int]] = {}
+    path = ""
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            path = line[6:] if line.startswith("+++ b/") else ""
+        elif line.startswith("@@") and path:
+            m = re.match(r"@@ -\S+ \+(\d+)(?:,(\d+))? @@", line)
+            if m:
+                start, count = int(m.group(1)), int(m.group(2) or 1)
+                out.setdefault(path, set()).update(range(start, start + count))
+    return out
 
 
 def pr_diff(s: Settings, limit: int) -> str:

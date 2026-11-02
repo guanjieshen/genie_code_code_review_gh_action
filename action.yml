@@ -44,6 +44,10 @@ inputs:
     description: Fail the check when the review cannot run (for example sign-in or bundle errors). By default it posts how to fix the problem and passes.
     required: false
     default: "false"
+  inline-comments:
+    description: Also comment on the code line of each issue that is part of the diff. `false` posts only the review comment.
+    required: false
+    default: "true"
   genie-model:
     description: Genie Code model to use. Defaults to `gpt-5.6-sol`. If your workspace does not serve it, set a model it does serve (run `lakehouse-review doctor` to check), or use `genie-host`.
     required: false
@@ -134,6 +138,7 @@ runs:
         FAIL_ON: ${{ inputs.fail-on }}
         FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
         UPLOAD: ${{ inputs.upload-artifacts }}
+        INLINE: ${{ inputs.inline-comments }}
         PY_INDEX: ${{ inputs.python-index-url }}
         GENIE_VERSION: ${{ inputs.genie-version }}
         CA_BUNDLE: ${{ inputs.ca-bundle }}
@@ -156,6 +161,7 @@ runs:
         one_of fail-on "$FAIL_ON" none blocker critical high medium
         one_of fail-on-error "$FAIL_ON_ERROR" true false
         one_of upload-artifacts "$UPLOAD" true false
+        one_of inline-comments "$INLINE" true false
         [[ -z "$SEMANTIC" || "$SEMANTIC" == genie-one || "$SEMANTIC" == off ]] || bad "\`semantic\` must be \`genie-one\` or \`off\`. Got \`$SEMANTIC\`."
         [[ "$GENIE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || bad "\`genie-version\` must be a release tag such as \`v0.2.0\`. Got \`$GENIE_VERSION\`."
         if [[ "$BUNDLE_DIR" == /* || "/$BUNDLE_DIR/" == */../* ]]; then
@@ -266,6 +272,7 @@ runs:
         DEPTH: ${{ inputs.analysis-depth }}
         FAIL_ON: ${{ inputs.fail-on }}
         FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+        INLINE: ${{ inputs.inline-comments }}
         GENIE_MODEL: ${{ inputs.genie-model }}
         GENIE_HOST: ${{ inputs.genie-host }}
         CONFIG_FILE: ${{ inputs.config-file }}
@@ -280,6 +287,7 @@ runs:
         [[ -n "$DEPTH" ]] && args+=(--depth "$DEPTH")
         [[ -n "$FAIL_ON" ]] && args+=(--fail-on "$FAIL_ON")
         [[ -n "$FAIL_ON_ERROR" ]] && args+=(--fail-on-error "$FAIL_ON_ERROR")
+        [[ -n "$INLINE" ]] && args+=(--inline-comments "$INLINE")
         [[ -n "$GENIE_MODEL" ]] && args+=(--genie-model "$GENIE_MODEL")
         [[ -n "$GENIE_HOST" ]] && args+=(--genie-profile lakehouse-review-model)
         PYTHONPATH="$GITHUB_ACTION_PATH/src" "$GENIE_REVIEW_PYTHON" -m genie_review.cli "${args[@]}"

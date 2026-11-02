@@ -43,6 +43,7 @@ class Settings:
     semantic: str = "genie-one"         # genie-one | off
     fail_on: str = "none"
     fail_on_error: bool = False         # fail the check when the review cannot run
+    inline_comments: bool = True        # also comment on the code line of each issue
     max_findings: int = 15
     ontology_budget: int = 6            # Genie One questions per PR in detailed mode
     enable: list[str] = field(default_factory=list)
@@ -106,6 +107,7 @@ def load(inputs: dict[str, Any]) -> Settings:
         semantic=str(pick("semantic", "semantic", "genie-one")),
         fail_on=str(pick("fail_on", "fail_on", "none")),
         fail_on_error=str(inputs.get("fail_on_error") or "false").lower() == "true",
+        inline_comments=str(inputs.get("inline_comments") or "true").lower() != "false",
         max_findings=number("max_findings", "max_findings", 15, 1, 100),
         ontology_budget=number("ontology_budget", "ontology.max_questions", 6, 0, 20),
         enable=list(checks.get("enable") or []),
