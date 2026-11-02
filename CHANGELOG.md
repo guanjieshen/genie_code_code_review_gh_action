@@ -8,6 +8,10 @@ The `v0` tag always points to the latest v0 release. To pin a release, use its t
 - uses: guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.4.0
 ```
 
+## v0.5.1
+
+- The orders demo no longer ships example Pages. Lakehouse Review uses the Pages and metric views your workspace already has.
+
 ## v0.5.0
 
 Fewer options and simpler code. The review itself is unchanged.

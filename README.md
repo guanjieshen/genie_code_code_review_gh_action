@@ -120,7 +120,7 @@ Table names built at runtime (for example from a config file) are reported as un
 - **[Setup](docs/setup.md)** — Reviewer identity, grants, networking, and the first pull request.
 - **[Inputs and outputs](docs/inputs.md)** — Every action input and output.
 - **[Configuration](docs/configuration.md)** — The config file, team instructions, and merge policy.
-- **[Ontology validation](docs/ontology.md)** — How detailed analysis uses Genie One, and how to write Pages it can use.
+- **[Ontology validation](docs/ontology.md)** — How detailed analysis checks changes against the Pages and metric views you already have.
 - **[Troubleshooting](docs/troubleshooting.md)** — Common setup problems and how to fix them.
 - **[Data and privacy](docs/data-and-privacy.md)** — What is sent where.
 - **[Costs](docs/costs.md)** — What a review uses, and how to control it.
