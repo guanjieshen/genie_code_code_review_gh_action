@@ -9,7 +9,7 @@ Lakehouse Review runs on your GitHub runner and talks only to **your Databricks 
 | **Your Databricks workspace** (`databricks-host`) | Table, column, and job names the pull request uses; metadata, tag, lineage, and `information_schema` queries | To collect the evidence for the review |
 | **Genie Code, through Unity Gateway** in your workspace (or `genie-host`) | The review prompt: the plan, the evidence, up to 15,000 characters of the diff (40,000 in `detailed`), and team instructions. Genie Code can also read files of the checked-out repository in a read-only sandbox | To review the change |
 | **Genie One** in your workspace (only with `analysis-depth: detailed`) | Up to `ontology.max_questions` questions about the tables, columns, joins, and codes the change uses | To check business definitions |
-| **GitHub** | The review comment, the job summary, and the action outputs. With `upload-artifacts: true`, also the evidence and the prompt as a workflow artifact | To report the review |
+| **GitHub** | The review comment, comments on code lines, the job summary, and the action outputs. With `upload-artifacts: true`, also the evidence and the prompt as a workflow artifact | To report the review |
 
 The action also downloads the Genie Code CLI from `github.com/databricks/genie-code-cli` and Python packages from your package index. For the Genie Code CLI's own behavior, see its documentation.
 
@@ -21,7 +21,7 @@ The action also downloads the Genie Code CLI from `github.com/databricks/genie-c
 
 ## Where results are visible
 
-- **The comment** contains table names, column names, and short explanations. **In a public repository, it is public.**
+- **The comments** (the review comment and the comments on code lines) contain table names, column names, and short explanations. **In a public repository, they are public.**
 - **The job summary** has the same content as the comment, visible to anyone who can see the workflow runs.
 - **Artifacts** (`upload-artifacts: true`) contain the impact graph, all evidence, and the prompt. Leave this off in public repositories.
 
