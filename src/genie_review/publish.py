@@ -97,33 +97,77 @@ def fallback_summary(impact: ImpactResult) -> str:
 # ------------------------------------------------------------------ GitHub
 
 
-def post_comment(body: str) -> str | None:
-    token, repo = os.environ.get("GITHUB_TOKEN"), os.environ.get("GITHUB_REPOSITORY")
-    event_path = os.environ.get("GITHUB_EVENT_PATH")
+def _pull_request() -> dict[str, Any] | None:
+    """API base, repo, PR number, head commit, and auth headers for the current pull_request event, if any."""
+    token, repo, event_path = os.environ.get("GITHUB_TOKEN"), os.environ.get("GITHUB_REPOSITORY"), os.environ.get("GITHUB_EVENT_PATH")
     if not (token and repo and event_path):
         return None
-    event = json.load(open(event_path))
-    pr = (event.get("pull_request") or {}).get("number")
-    if not pr:
+    pr = json.load(open(event_path)).get("pull_request") or {}
+    if not pr.get("number"):
         return None
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
-    h = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
-    existing = None
-    page = 1
-    while page < 10:
-        r = requests.get(f"{api}/repos/{repo}/issues/{pr}/comments", headers=h, params={"per_page": 100, "page": page}, timeout=30)
+    return {"url": f"{api}/repos/{repo}", "number": pr["number"], "sha": (pr.get("head") or {}).get("sha", ""),
+            "headers": {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}}
+
+
+def _all(url: str, headers: dict[str, str]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for page in range(1, 10):
+        r = requests.get(url, headers=headers, params={"per_page": 100, "page": page}, timeout=30)
         r.raise_for_status()
-        batch = r.json()
-        existing = next((c for c in batch if MARKER in c.get("body", "")), existing)
-        if len(batch) < 100:
+        out += r.json()
+        if len(r.json()) < 100:
             break
-        page += 1
+    return out
+
+
+def post_comment(body: str) -> str | None:
+    """Create or update the one review comment on the pull request."""
+    pr = _pull_request()
+    if not pr:
+        return None
+    h, comments = pr["headers"], f"{pr['url']}/issues/{pr['number']}/comments"
+    existing = next((c for c in _all(comments, h) if MARKER in c.get("body", "")), None)
     if existing:
         r = requests.patch(existing["url"], headers=h, json={"body": body}, timeout=30)
     else:
-        r = requests.post(f"{api}/repos/{repo}/issues/{pr}/comments", headers=h, json={"body": body}, timeout=30)
+        r = requests.post(comments, headers=h, json={"body": body}, timeout=30)
     r.raise_for_status()
     return r.json().get("html_url")
+
+
+INLINE_MARKER = re.compile(r"<!-- lakehouse-review:([\w.-]+) -->")
+NEARBY = 3   # model-worded findings can move a line or two between runs
+
+
+def post_inline(comments: list[dict[str, Any]]) -> int:
+    """Comment on code lines: {check, path, line, body} each.
+
+    An issue already commented on an earlier push (same check, same file, within a few lines) is skipped,
+    so each issue is commented once. Returns how many were posted.
+    """
+    pr = _pull_request()
+    if not pr or not comments:
+        return 0
+    h = pr["headers"]
+    earlier = [(m.group(1), c.get("path"), c.get("line") or c.get("original_line") or 0)
+               for c in _all(f"{pr['url']}/pulls/{pr['number']}/comments", h)
+               if (m := INLINE_MARKER.match(c.get("body", "")))]
+    new = [c for c in comments
+           if not any(chk == c["check"] and path == c["path"] and abs(line - c["line"]) <= NEARBY for chk, path, line in earlier)]
+    if not new:
+        return 0
+    review = {"commit_id": pr["sha"], "event": "COMMENT",
+              "comments": [{"path": c["path"], "line": c["line"], "side": "RIGHT", "body": c["body"]} for c in new]}
+    r = requests.post(f"{pr['url']}/pulls/{pr['number']}/reviews", headers=h, json=review, timeout=30)
+    if r.ok:
+        return len(new)
+    # One bad line rejects the whole review: post the comments one by one and skip the ones GitHub refuses.
+    count = 0
+    for c in review["comments"]:
+        one = requests.post(f"{pr['url']}/pulls/{pr['number']}/comments", headers=h, json={"commit_id": pr["sha"], **c}, timeout=30)
+        count += one.ok
+    return count
 
 
 def step_summary(body: str) -> None:

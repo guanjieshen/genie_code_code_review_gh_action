@@ -169,6 +169,21 @@ def evidence_block(g: Group, facts: dict[str, Any]) -> str:
     return "\n".join(rows)
 
 
+def inline_marker(check: str) -> str:
+    """Hidden first line of a code-line comment. With the comment's file and line, it identifies the issue on later pushes."""
+    return f"<!-- lakehouse-review:{check} -->"
+
+
+def inline_body(g: Group) -> str:
+    """The comment on the code line of an issue. The first line is the marker used to avoid posting it twice."""
+    f = g.primary
+    lines = [inline_marker(f.check), f"**{ICON[g.severity]} {_cap(g.severity)} — {f.title}**", "", f.explanation]
+    if f.suggestion:
+        lines += ["", f"**Recommended fix:** {f.suggestion}"]
+    lines += ["", f"<sub>Lakehouse Review · {CONFIDENCE_LABEL[g.confidence]} · evidence in the review comment</sub>"]
+    return "\n".join(lines)
+
+
 def one_line(g: Group, ctx: LinkContext) -> str:
     return (f"- {ICON[g.severity]} **{_cap(g.severity)}** — {g.primary.title} · {ctx.link(g.primary.file, g.primary.line)}"
             f" · details under *{CATEGORIES[g.category]}*")

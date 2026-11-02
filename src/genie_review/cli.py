@@ -25,6 +25,7 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--genie-bin", default="genie")
     p.add_argument("--fail-on", help="none | critical | high | medium")
     p.add_argument("--fail-on-error", help="true to fail the check when the review cannot run")
+    p.add_argument("--inline-comments", help="false to only post the review comment, without comments on code lines")
     p.add_argument("--config-file")
     p.add_argument("--out-dir", default=".lakehouse-review-out")
 

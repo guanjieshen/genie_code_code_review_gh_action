@@ -28,7 +28,7 @@ On every push to a pull request, the action:
 1. **Finds the impact.** It resolves the bundle on the base branch and the pull request branch, follows imports, and parses SQL and PySpark to find the tables and columns each task reads and writes.
 2. **Collects evidence.** It reads only what it needs from the workspace: table metadata, tags, metric views, lineage, deployed job settings, and runtimes.
 3. **Runs exact checks**, then asks **Genie Code** to review the change against the evidence in a read-only sandbox. With `analysis-depth: detailed`, it also asks **Genie One** what your Pages and metric views say about the joins, grains, and codes the change uses.
-4. **Posts one comment** on the pull request, updated on every push, with the issues that need attention first. The full result is also written to `review.json`.
+4. **Posts one review comment** on the pull request, updated on every push, with the issues that need attention first, and **comments on the code line of each issue** that is part of the diff. The full result is also written to `review.json`.
 
 If the reviewer cannot read something, the comment still posts what it could check and lists the exact grant to add. See [the architecture](docs/architecture.md) for the details.
 
@@ -84,6 +84,7 @@ The review is **advisory by default**. Set `fail-on: blocker` once you trust the
 | Give the reviewer team context, such as which catalog is production | `.lakehouse-review/instructions.md` |
 | Turn a check off or change its severity | `checks` in `.lakehouse-review/config.yml` |
 | Review a bundle in a subfolder of a monorepo | `bundle-dir` input, one job per bundle |
+| Post only the review comment, without comments on code lines | `inline-comments: false` |
 | Use a workspace that does not serve the Genie Code model | `genie-host` input |
 | Run behind a proxy or package mirror | `HTTPS_PROXY`, `ca-bundle`, and `python-index-url` ([docs/setup.md](docs/setup.md#locked-down-networks)) |
 

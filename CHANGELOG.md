@@ -8,6 +8,10 @@ The `v0` tag always points to the latest v0 release. To pin a release, use its t
 - uses: guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.4.0
 ```
 
+## v0.6.0
+
+- **Comments on code lines.** Each issue whose line is part of the diff also gets a comment on that line, with the severity, the problem, and the recommended fix. Each issue is commented once, even across pushes. Turn it off with `inline-comments: false`.
+
 ## v0.5.1
 
 - The orders demo no longer ships example Pages. Lakehouse Review uses the Pages and metric views your workspace already has.

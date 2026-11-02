@@ -30,6 +30,7 @@ Inputs are checked before anything is installed. If one is not valid, the action
 | `analysis-depth` | `rapid` | `rapid`: exact checks plus one compact Genie Code review. `detailed`: full evidence plus ontology questions to Genie One. See [costs](costs.md). **config:** `analysis_depth`. |
 | `semantic` | `genie-one` | `genie-one` or `off`. `off` turns off Genie One and the checks that need it. **config:** `semantic`. |
 | `fail-on` | `none` | `none` only comments. `blocker` fails on any issue the merge policy rates as blocking. `critical`, `high`, or `medium` fail at that severity or above. **config:** `fail_on`. |
+| `inline-comments` | `true` | Also comment on the code line of each issue, when that line is part of the diff. Each issue is commented once, even across pushes. `false` posts only the review comment. |
 | `fail-on-error` | `false` | `true` fails the check when the review cannot run, for example when sign-in fails. By default the comment explains the problem and the check passes. Invalid configuration always fails. |
 
 ## Genie Code model
