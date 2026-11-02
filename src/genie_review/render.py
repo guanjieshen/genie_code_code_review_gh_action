@@ -7,6 +7,7 @@ secondary number. Every count comes from `Review.groups`.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -170,7 +171,9 @@ def evidence_block(g: Group, facts: dict[str, Any]) -> str:
 
 
 def inline_marker(g: Group) -> str:
-    return f"<!-- lakehouse-review:{g.id} -->"
+    """Stable across pushes: model wording changes between runs, the check and its line do not."""
+    key = hashlib.sha1(f"{g.primary.check}|{g.primary.file}|{g.primary.line}".encode()).hexdigest()[:10]
+    return f"<!-- lakehouse-review:{key} -->"
 
 
 def inline_body(g: Group) -> str:

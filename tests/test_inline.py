@@ -35,6 +35,14 @@ def test_inline_body_is_short_and_marked():
     assert "Technical evidence" not in body                # evidence stays in the review comment
 
 
+def test_marker_survives_new_model_wording():
+    review, _ = build()
+    g = review.groups[0]
+    before = render.inline_marker(g)
+    g.primary.title, g.primary.explanation = "Reworded title on the next push", "Reworded."
+    assert render.inline_marker(g) == before
+
+
 class FakeGitHub:
     def __init__(self, existing_bodies=(), review_ok=True):
         self.existing, self.review_ok, self.posted = list(existing_bodies), review_ok, []
