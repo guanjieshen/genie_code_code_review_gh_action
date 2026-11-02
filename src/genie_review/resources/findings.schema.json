@@ -32,7 +32,8 @@
           "evidence",
           "impact",
           "suggestion",
-          "confidence"
+          "confidence",
+          "validation_query"
         ],
         "properties": {
           "check": {
@@ -73,6 +74,9 @@
             "type": "number"
           },
           "impact": {
+            "type": "string"
+          },
+          "validation_query": {
             "type": "string"
           }
         }
