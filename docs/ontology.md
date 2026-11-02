@@ -38,4 +38,3 @@ The **Analysis coverage** section of the comment shows how many questions were p
 
 - `analysis-depth: rapid` (the default) plans the questions but does not ask them. The comment then says that business relationships and definitions were not validated.
 - `semantic: off` turns off Genie One completely.
-- `ontology.enabled: false` in the config file turns off question planning.

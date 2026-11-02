@@ -1,76 +1,59 @@
 # Configuration
 
-Settings are resolved in this order: **action inputs**, then the **config file**, then defaults. The config file and instructions file are always read from the pull request's **base branch**. Changes to them in a pull request take effect after it merges.
+Most teams need no config file. When you want one, settings are resolved in this order: **action inputs**, then the **config file**, then defaults.
 
-### Config file
+The config file and the instructions file are always read from the pull request's **base branch**, so a pull request cannot change how it is reviewed. Changes to them take effect after they merge.
 
-Create `.lakehouse-review/config.yml` in the bundle folder. The file is checked when the review starts: unknown values, out-of-range numbers, and invalid YAML fail the check with a list of every problem. Unknown top-level keys are ignored with a warning in the log.
+## Config file
 
-> **Note:** `.genie-review/config.yml` from earlier versions is still read when `.lakehouse-review/config.yml` does not exist. Rename the folder; the old name stops working in v1.0.
+Create `.lakehouse-review/config.yml` in the bundle folder. Every setting is optional:
 
 ```yaml
-# Bundle target to review against (same as the bundle-target input)
-target: staging
-
-# Fail the check: none | blocker (merge-impact policy) | critical | high | medium
-fail_on: none
-
-# Semantic checks backend: genie-one | off
-semantic: genie-one
-
-max_findings: 15
+target: staging                    # bundle target to review against
+fail_on: none                      # none | blocker | critical | high | medium
+analysis_depth: rapid              # rapid | detailed
+semantic: genie-one                # genie-one | off
+max_findings: 15                   # issues shown in the comment
 
 checks:
-  # Turn individual checks off
   disable: [deploy.runtime-support]
-  # Override severities
   severity:
     lineage.downstream-break: critical
 
-report:
-  categories: [contracts, correctness, semantics, lineage, governance, deployment]
-  min_severity: low                # hide findings below this severity
-  prominent_min_confidence: high   # "Needs attention" only shows findings at or above this confidence
-  show_low_confidence: false       # low-confidence observations stay in review.json only
-  include_info: false
-  group_related: true              # show related checks of one root cause as one issue
-  max_priority: 3                  # findings expanded under "Needs attention"
-
-merge_policy:
-  block_severities: [critical]
-  block_min_confidence: confirmed
-  block_categories: [contracts, lineage, deployment]
-
-analysis_depth: rapid              # rapid | detailed
-
 ontology:
-  enabled: true                    # plan ontology questions (Genie One is asked only in detailed mode)
-  max_questions: 6                 # Genie One budget per PR
+  max_questions: 6                 # Genie One questions per pull request (detailed mode)
 
 genie:
-  model: ""                        # empty = gpt-5.6-sol; set a model your workspace serves
-  on_model_unavailable: deterministic
+  model: gpt-5.6-sol               # a model your workspace serves
 
 instructions_file: .lakehouse-review/instructions.md
 ```
 
-| Key | Default | Description |
-|---|---|---|
-| `target` | bundle default | Bundle target |
-| `fail_on` | `none` | `blocker` fails on any blocker; a severity fails at that severity or above |
-| `semantic` | `genie-one` | `genie-one` or `off` |
-| `max_findings` | `15` | Maximum issues in the comment |
-| `analysis_depth` | `rapid` | `rapid` or `detailed` |
-| `ontology.enabled` / `ontology.max_questions` | `true` / `6` | Ontology question planning and Genie One budget |
-| `report.*` | see above | What the comment shows. `review.json` always keeps every finding |
-| `merge_policy.*` | see above | Which findings are blockers. Blockers only fail the check when `fail_on: blocker` |
-| `checks.disable` | `[]` | Check ids to turn off |
-| `checks.severity` | `{}` | Severity overrides by check id |
-| `genie.model` | `gpt-5.6-sol` | Genie Code model |
-| `genie.on_model_unavailable` | `deterministic` | `deterministic`, `skip`, or `fail` |
-| `instructions_file` | none | Path to team instructions |
+| Setting | Default | Description |
+| --- | --- | --- |
+| `target` | the bundle's default target | Same as the `bundle-target` input. |
+| `fail_on` | `none` | `blocker` fails on any blocking issue. A severity fails at that severity or above. |
+| `analysis_depth` | `rapid` | `detailed` also asks Genie One about joins, grain, and codes. See [costs](costs.md). |
+| `semantic` | `genie-one` | `off` turns off Genie One and the checks that need it. |
+| `max_findings` | `15` | Maximum issues in the comment. `review.json` keeps every finding. |
+| `checks.disable` | `[]` | Check ids to turn off. |
+| `checks.severity` | `{}` | Severity overrides by check id. |
+| `ontology.max_questions` | `6` | Genie One budget per pull request. |
+| `genie.model` | `gpt-5.6-sol` | Genie Code model. |
+| `instructions_file` | none | Path to team instructions, relative to the bundle folder. |
 
-### Team instructions
+The file is checked when the review starts. Unknown settings, out-of-range numbers, and invalid YAML fail the check with a list of every problem.
+
+## What the comment shows and what blocks a merge
+
+These rules are fixed, so every team reads reviews the same way:
+
+- **Shown:** every issue with medium confidence or better. Low-confidence observations and informational notes are in `review.json` only.
+- **Grouped:** related checks with one root cause, such as a schema change and the downstream break it causes, are shown as one issue.
+- **Needs attention:** up to 3 blocking or action-required issues with high confidence or better.
+- **Blocker:** a **confirmed critical** issue about a data contract, lineage, or deployment. Blockers fail the check only when `fail_on: blocker`.
+
+## Team instructions
 
 `instructions.md` gives the reviewer context it cannot get from the workspace. Keep it short and factual:
 
@@ -82,7 +65,7 @@ instructions_file: .lakehouse-review/instructions.md
 
 Instructions add context only. The review rules, the evidence requirement, and the output format cannot be changed by instructions.
 
-### Check ids
+## Check ids
 
 | Area | Check ids |
 | --- | --- |

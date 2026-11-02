@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass, field
 from typing import Any
 
 from . import wording
@@ -49,13 +48,7 @@ RULE_IMPACT = {
 }
 
 
-@dataclass
-class Policy:
-    """Merge-impact policy. Defaults are conservative: only confirmed, severe, deterministic-grade issues block."""
-
-    block_severities: list[str] = field(default_factory=lambda: ["critical"])
-    block_min_confidence: str = "confirmed"
-    block_categories: list[str] = field(default_factory=lambda: ["contracts", "lineage", "deployment"])
+BLOCKING_CATEGORIES = ("contracts", "lineage", "deployment")   # only confirmed critical issues here block a merge
 
 
 def _rank(scale: list[str], v: str) -> int:
@@ -146,10 +139,9 @@ def assess_confidence(f: Finding, facts: dict[str, Any]) -> str:
     return level
 
 
-def merge_impact(f: Finding, policy: Policy) -> str:
+def merge_impact(f: Finding) -> str:
     sev, conf = _rank(SEVERITIES, f.severity), _rank(CONFIDENCE, f.confidence)
-    if (f.severity in policy.block_severities and conf <= _rank(CONFIDENCE, policy.block_min_confidence)
-            and f.category in policy.block_categories):
+    if f.severity == "critical" and f.confidence == "confirmed" and f.category in BLOCKING_CATEGORIES:
         return "blocker"
     if sev <= _rank(SEVERITIES, "high") and conf <= _rank(CONFIDENCE, "high"):
         return "action_required"
@@ -208,7 +200,7 @@ def _apply_wording(f: Finding, facts: dict[str, Any]) -> None:
     f.validation = f.validation or wording.validation_note(f.check, f.confidence, f.params, anchored)
 
 
-def normalize(findings: list[Finding], facts: dict[str, Any], policy: Policy) -> list[Finding]:
+def normalize(findings: list[Finding], facts: dict[str, Any]) -> list[Finding]:
     for f in findings:
         f.category = RULE_CATEGORY.get(f.check, "other")
         f.affected_objects = f.affected_objects or objects_from_evidence(f.evidence)
@@ -218,22 +210,14 @@ def normalize(findings: list[Finding], facts: dict[str, Any], policy: Policy) ->
         f.impact = f.impact or RULE_IMPACT.get(f.check, "")
         _apply_wording(f, facts)
         f.detected_by = detected_by(f, facts)
-        f.merge_impact = merge_impact(f, policy)
+        f.merge_impact = merge_impact(f)
         f.id = finding_id(f)
     return findings
 
 
-def visible(f: Finding, categories: list[str], min_severity: str, show_low_confidence: bool, include_info: bool) -> bool:
-    """Whether a finding appears in the PR comment (all findings stay in the JSON output)."""
-    if f.category not in categories and f.category != "other":
-        return False
-    if _rank(SEVERITIES, f.severity) > _rank(SEVERITIES, min_severity):
-        return False
-    if f.confidence == "low" and not show_low_confidence:
-        return False
-    if f.severity == "info" and not include_info:
-        return False
-    return True
+def visible(f: Finding) -> bool:
+    """Whether a finding appears in the PR comment. Low-confidence and info findings stay in review.json only."""
+    return f.confidence != "low" and f.severity != "info"
 
 
-__all__ = ["CATEGORIES", "MERGE_IMPACT", "Policy", "normalize", "visible"]
+__all__ = ["CATEGORIES", "MERGE_IMPACT", "normalize", "visible"]

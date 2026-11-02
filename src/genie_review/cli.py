@@ -20,15 +20,12 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--semantic", help="genie-one | off")
     p.add_argument("--depth", help="rapid | detailed")
     p.add_argument("--ontology-budget", help="Genie One questions per PR in detailed mode")
-    p.add_argument("--ontology", dest="ontology_enabled", choices=["on", "off"], help="Ontology question planning")
     p.add_argument("--genie-model")
     p.add_argument("--genie-profile", help="Profile for a separate workspace that serves the Genie Code model")
     p.add_argument("--genie-bin", default="genie")
-    p.add_argument("--on-model-unavailable", help="deterministic | skip | fail")
     p.add_argument("--fail-on", help="none | critical | high | medium")
     p.add_argument("--fail-on-error", help="true to fail the check when the review cannot run")
     p.add_argument("--config-file")
-    p.add_argument("--instructions")
     p.add_argument("--out-dir", default=".lakehouse-review-out")
 
 

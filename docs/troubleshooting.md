@@ -42,7 +42,7 @@ When the review cannot run, the pull request comment says **Review could not run
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| "Details were shortened to fit GitHub's comment size limit" | The full report is longer than 65,536 characters | The job summary and `review.json` have the full report. Consider raising `report.min_severity`. |
+| "Details were shortened to fit GitHub's comment size limit" | The full report is longer than 65,536 characters | The job summary and `review.json` have the full report. |
 | A change to the config file had no effect | The config file is read from the base branch | Expected. It takes effect after the pull request merges. |
 | Several comments from Lakehouse Review | Two workflows, or two jobs, review the same pull request | Each run updates one comment. Use one job per bundle and a `concurrency` group. |
 

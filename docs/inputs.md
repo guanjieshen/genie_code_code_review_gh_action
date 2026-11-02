@@ -21,8 +21,7 @@ Inputs are checked before anything is installed. If one is not valid, the action
 | --- | --- | --- |
 | `bundle-target` | the bundle's default target | Bundle target to review against. **config:** `target`. |
 | `bundle-dir` | `.` | Folder that contains `databricks.yml`, relative to the repository root. Use it in monorepos. Must stay inside the repository. |
-| `config-file` | `<bundle-dir>/.lakehouse-review/config.yml` | Path to the config file, read from the base branch. If set, the file must exist. `.genie-review/config.yml` is still read if the new path is absent. |
-| `instructions` | empty | Extra team context for the reviewer, added to the base-branch instructions file. |
+| `config-file` | `<bundle-dir>/.lakehouse-review/config.yml` | Path to the config file, read from the base branch. If set, the file must exist. |
 
 ## Depth and gating
 
@@ -38,10 +37,7 @@ Inputs are checked before anything is installed. If one is not valid, the action
 | Input | Default | Description |
 | --- | --- | --- |
 | `genie-model` | `gpt-5.6-sol` | Genie Code model. If your workspace does not serve it, set one it does serve. `lakehouse-review doctor` shows which route works. **config:** `genie.model`. |
-| `genie-host` | empty | A separate workspace that serves the Genie Code model, when the target workspace does not. Only the model runs there; evidence, Genie One, and data stay on `databricks-host`. |
-| `genie-client-id` | `client-id` | Service principal for `genie-host`. |
-| `genie-client-secret` | `client-secret` | OAuth secret for `genie-host`. |
-| `on-model-unavailable` | `deterministic` | What to do when no Genie Code model is reachable: `deterministic` posts the exact checks only, `skip` posts nothing, `fail` fails the check. **config:** `genie.on_model_unavailable`. |
+| `genie-host` | empty | A separate workspace that serves the Genie Code model, when the target workspace does not. The reviewer signs in there with the same `client-id` and `client-secret`. Only the model runs there; evidence, Genie One, and data stay on `databricks-host`. |
 | `genie-version` | `v0.2.0` | Genie Code CLI release to install. Only tested releases are supported. |
 
 ## Runner and network

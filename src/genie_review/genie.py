@@ -24,7 +24,7 @@ from .util import CommandError, log, sh
 
 DEFAULT_GENIE_MODEL = "gpt-5.6-sol"   # documented in action.yml and docs/inputs.md; override with genie-model
 # Agent configuration Genie loads from a repo. Replaced with base-branch versions before review.
-AGENT_CONFIG_PATHS = ["AGENTS.md", "AGENTS.override.md", ".agents", ".genie", ".codex", ".genie-review", ".lakehouse-review"]
+AGENT_CONFIG_PATHS = ["AGENTS.md", "AGENTS.override.md", ".agents", ".genie", ".codex", ".lakehouse-review"]
 
 
 @dataclass

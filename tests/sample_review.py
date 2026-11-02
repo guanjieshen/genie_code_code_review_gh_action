@@ -9,7 +9,7 @@ from pathlib import Path
 from genie_review import capabilities
 from genie_review.correlate import correlate, needs_attention
 from genie_review.models import Finding
-from genie_review.normalize import Policy, normalize, visible
+from genie_review.normalize import normalize, visible
 from genie_review.render import LinkContext, Review, markdown
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_review"
@@ -29,18 +29,18 @@ def load() -> tuple[list[Finding], dict, str]:
     return findings, facts, summary
 
 
-def build(findings=None, facts=None, summary=None, group_related=True, max_priority=3, ctx=None) -> tuple[Review, str]:
+def build(findings=None, facts=None, summary=None, ctx=None) -> tuple[Review, str]:
     f0, x0, s0 = load()
     findings = f0 if findings is None else findings
     facts = x0 if facts is None else facts
     summary = s0 if summary is None else summary
-    normalize(findings, facts, Policy())
-    shown = [f for f in findings if visible(f, CATEGORIES, "low", False, False)]
-    groups = correlate(shown, facts, group_related)
+    normalize(findings, facts)
+    shown = [f for f in findings if visible(f)]
+    groups = correlate(shown, facts)
     graph = json.loads((FIXTURE / "impact.json").read_text())
     caps = capabilities.build(graph, facts, findings, [], "ran" if findings else "not needed",
                               {"status": "Not needed", "detail": "Unity Catalog evidence answered the semantic checks"})
-    review = Review(summary, groups, needs_attention(groups, max_priority, "high"), findings,
+    review = Review(summary, groups, needs_attention(groups), findings,
                     hidden=len(findings) - len(shown), capabilities=caps, facts=facts,
                     route_note="AI review engine: Genie Code `gpt-5.6-sol` via target workspace. Genie One: not called.")
     ctx = ctx or LinkContext("https://github.com", "acme/data-platform", "0123abc", ".")

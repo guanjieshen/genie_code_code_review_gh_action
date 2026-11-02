@@ -4,9 +4,8 @@ import json
 import re
 
 from genie_review import publish
-from genie_review.correlate import correlate
 from genie_review.models import CATEGORIES, Finding
-from genie_review.normalize import Policy, assess_confidence, merge_impact, normalize
+from genie_review.normalize import assess_confidence, merge_impact, normalize
 from genie_review.render import MARKER, LinkContext, Review, markdown, status, to_json
 
 from .sample_review import build, load
@@ -84,7 +83,7 @@ def test_merge_impact_policy():
 
 def test_critical_alone_is_not_a_blocker():
     f = Finding("semantic.metric-definition-drift", "critical", "a.sql", 1, "t", "e", ["ev:genie_one:q"], source="genie")
-    normalize([f], {}, Policy())
+    normalize([f], {})
     assert f.severity == "high"                                  # semantic interpretation is capped at high
     assert f.merge_impact != "blocker"
 
@@ -107,7 +106,7 @@ def test_model_score_can_only_lower_confidence():
 def test_unverified_metadata_is_never_confirmed():
     f = Finding("contract.unknown-object", "critical", "a.sql", 1, "t", "e", ["ev:uc:c.s.t:metadata"])
     facts = {"ev:uc:c.s.t:metadata": {"exists": None, "access": "denied"}}
-    normalize([f], facts, Policy())
+    normalize([f], facts)
     assert f.confidence == "low" and f.merge_impact != "blocker"
 
 
@@ -225,16 +224,13 @@ def test_rerun_updates_the_existing_comment(monkeypatch, tmp_path):
     assert calls == [("patch", "https://api/c/1")]
 
 
-def test_correlate_without_grouping_keeps_one_issue_per_finding():
-    findings, facts, _ = load()
-    normalize(findings, facts, Policy())
-    assert len(correlate(findings, facts, group_related=False)) == 12
-
-
-def test_merge_impact_respects_custom_policy():
-    f = Finding("deploy.runtime-support", "high", "j.yml", 1, "t", "e", ["ev:workspace:spark_version:x"], category="deployment",
-                confidence="confirmed")
-    assert merge_impact(f, Policy(block_severities=["critical", "high"])) == "blocker"
+def test_only_confirmed_critical_contract_lineage_or_deployment_issues_block():
+    def f(sev, conf, cat):
+        return Finding("deploy.runtime-support", sev, "j.yml", 1, "t", "e", [], category=cat, confidence=conf)
+    assert merge_impact(f("critical", "confirmed", "deployment")) == "blocker"
+    assert merge_impact(f("high", "confirmed", "deployment")) == "action_required"
+    assert merge_impact(f("critical", "high", "contracts")) == "action_required"
+    assert merge_impact(f("critical", "confirmed", "semantics")) == "action_required"
 
 
 def test_no_false_all_clear_when_ontology_did_not_run():
@@ -250,16 +246,16 @@ def test_no_false_all_clear_when_ontology_did_not_run():
 def test_short_model_titles_become_specific_and_no_generic_validation():
     f = Finding("ontology.identifier-relationship", "high", "a.sql", 3, "orders", "e", ["ev:genie_one:q"], source="genie")
     facts = {"ev:genie_one:q": {"status": "answered", "authoritative": True, "intent": "join_relationship"}}
-    normalize([f], facts, Policy())
+    normalize([f], facts)
     assert f.title == "Join violates a documented relationship: orders"
     assert f.validation == ""                                     # anchored: no boilerplate
     g = Finding("deploy.drift", "medium", "j.yml", 1, "t", "e", ["ev:job:1:drift"], params={"job": "etl", "fields": ["tags"]})
-    normalize([g], {"ev:job:1:drift": {}}, Policy())
+    normalize([g], {"ev:job:1:drift": {}})
     assert g.validation == ""
 
 
 def test_grain_and_filter_rules_need_an_authoritative_definition():
     for rule in ("correctness.aggregation-grain", "semantic.filter-meaning"):
         f = Finding(rule, "high", "a.sql", 3, "Order total summed once per line item", "e", ["ev:genie_one:q"], source="genie")
-        normalize([f], {"ev:genie_one:q": {"status": "answered", "authoritative": False}}, Policy())
+        normalize([f], {"ev:genie_one:q": {"status": "answered", "authoritative": False}})
         assert f.confidence == "low" and f.category in ("correctness", "semantics")

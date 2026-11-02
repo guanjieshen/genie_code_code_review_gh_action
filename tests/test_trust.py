@@ -48,13 +48,3 @@ def test_monorepo_config_is_read_from_bundle_dir(tmp_path):
     s = config.load({"repo": str(r), "base_ref": "main", "profile": "p", "bundle_dir": "team/app"})
     assert s.fail_on == "high" and s.instructions == "Prod is main." and s.bundle_dir == "team/app"
 
-
-def test_legacy_config_folder_is_still_read(tmp_path):
-    r = tmp_path / "legacy"
-    (r / ".genie-review").mkdir(parents=True)
-    (r / ".genie-review/config.yml").write_text("fail_on: high\n")
-    git(r, "init", "-q", "-b", "main")
-    git(r, "add", "-A")
-    git(r, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "base")
-    s = config.load({"repo": str(r), "base_ref": "main", "profile": "p"})
-    assert s.fail_on == "high" and s.config_source == ".genie-review/config.yml"

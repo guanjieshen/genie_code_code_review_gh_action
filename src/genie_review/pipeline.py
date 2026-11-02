@@ -18,7 +18,7 @@ from databricks.sdk import WorkspaceClient
 from . import __version__, capabilities, checks, evidence, genie, impact, ontology, prompt, publish, render
 from .access import classify
 from .correlate import correlate, needs_attention
-from .normalize import Policy, normalize, visible
+from .normalize import normalize, visible
 from .render import Review
 from .config import ConfigError, Settings
 from .models import Finding
@@ -120,7 +120,7 @@ def run(s: Settings, client_factory: Callable[[str], WorkspaceClient] = lambda p
 
 
 def _ontology_on(s: Settings) -> bool:
-    return s.ontology and s.semantic != "off"
+    return s.semantic != "off"
 
 
 def _sign_in(s: Settings, client_factory: Callable[[str], WorkspaceClient], publish_to_github: bool) -> tuple[WorkspaceClient, str]:
@@ -218,11 +218,9 @@ def _genie_review(s: Settings, imp: impact.ImpactResult, ev: evidence.Evidence, 
         if route is None:
             stage.status = "unavailable"
             ev.access.genie_code(route_notes)
-            if s.on_model_unavailable == "fail":
-                raise Stop(_problem(s, "Genie Code model unavailable", "; ".join(route_notes), [ev.access.gaps[-1].fix], publish_to_github))
             stage.route_note = "AI review engine: unavailable (no Genie Code model was reachable). Exact checks only."
             verdicts, _ = ontology.reconcile(ev.facts, [], [], publish.clean, Finding)   # nobody judged the answers
-            return stage, ([] if s.on_model_unavailable == "skip" else det), _with_verdicts(genie_one_status, verdicts)
+            return stage, det, _with_verdicts(genie_one_status, verdicts)
 
         detailed = s.depth == "detailed"
         facts = ev.facts if detailed else prompt.compact(ev.facts, _referenced_columns(imp))
@@ -271,12 +269,11 @@ def _report(s: Settings, imp: impact.ImpactResult, ev: evidence.Evidence, plan: 
             stage: GenieStage, genie_one_status: dict, notes: list[str], publish_to_github: bool) -> Result:
     """Normalize, filter, group, and prioritize the findings, then render and publish the review."""
     findings = publish.merge(det, stage.findings, s.severity)
-    normalize(findings, ev.facts, Policy(s.block_severities, s.block_min_confidence, s.block_categories))
-    shown = [f for f in findings if visible(f, s.categories, s.min_severity, s.show_low_confidence, s.include_info)]
-    groups = correlate(shown, ev.facts, s.group_related)[: s.max_findings]
+    normalize(findings, ev.facts)
+    groups = correlate([f for f in findings if visible(f)], ev.facts)[: s.max_findings]
     review = Review(
         summary=stage.summary or publish.fallback_summary(imp), groups=groups,
-        priority=needs_attention(groups, s.max_priority, s.prominent_min_confidence), findings=findings,
+        priority=needs_attention(groups), findings=findings,
         hidden=len(findings) - sum(len(g.findings) for g in groups),
         coverage=checks.coverage(plan, findings, enabled, ev, stage.ran),
         capabilities=capabilities.build(imp.graph.to_dict(), ev.facts, findings, ev.gaps, stage.status, genie_one_status),

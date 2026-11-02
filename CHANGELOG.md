@@ -8,6 +8,28 @@ The `v0` tag always points to the latest v0 release. To pin a release, use its t
 - uses: guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.4.0
 ```
 
+## v0.5.0
+
+Fewer options and simpler code. The review itself is unchanged.
+
+**Breaking**
+
+| Removed | What to do instead |
+| --- | --- |
+| `on-model-unavailable` input and `genie.on_model_unavailable` | Nothing. When no Genie Code model is reachable, the exact checks always post. Use `fail-on-error` to fail the check instead. |
+| `genie-client-id` and `genie-client-secret` inputs | Add the reviewer service principal to the `genie-host` workspace; it signs in with `client-id` and `client-secret`. |
+| `instructions` input | Put team context in the base-branch file named by `instructions_file`. |
+| `report.*` and `merge_policy.*` settings | Nothing. The rules are now fixed (see [configuration](docs/configuration.md#what-the-comment-shows-and-what-blocks-a-merge)) and match the old defaults. |
+| `ontology.enabled`, `limits.*`, `preset` | Use `semantic: off` or `analysis-depth: rapid`; move `limits.max_findings` and `limits.fail_on` to the top level. |
+| `.genie-review/` config folder and `genie-review` command | Rename the folder to `.lakehouse-review/`; use `lakehouse-review`. |
+
+Unknown settings in the config file now fail the check with a clear error, instead of being ignored.
+
+**Changed**
+
+- Genie Code gets no tools. Genie One is asked only by the action's ontology planner, and Genie Code reads the answers as evidence.
+- The pipeline, evidence collection, ontology planner, and config loader are split into small functions. Lint runs in CI.
+
 ## v0.4.1
 
 - Ontology checks use the definitions the workspace already has (Pages, metric views, certified datasets) through Genie One. The project no longer ships example ontology content: the TPC-H demo and its Pages are removed.

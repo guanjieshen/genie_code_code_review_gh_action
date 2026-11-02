@@ -62,7 +62,6 @@ def test_validated_enums_match_the_python_config():
     from genie_review import config
     script = next(s for s in ACTION["runs"]["steps"] if s["name"] == "Initialize: validate inputs")["run"]
     assert f'one_of fail-on "$FAIL_ON" {" ".join(config.FAIL_ON)}' in script
-    assert f'one_of on-model-unavailable "$ON_MODEL_UNAVAILABLE" {" ".join(config.ON_MODEL_UNAVAILABLE)}' in script
 
 
 def test_configuration_doc_lists_every_check():

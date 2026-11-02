@@ -1,8 +1,8 @@
 """`lakehouse-review doctor`: check everything the review needs, and say how to fix what is missing.
 
 Run it with the reviewer identity's profile. Each check is independent, so one failure does not hide the rest.
-Exit code is 1 only when the review cannot produce useful results (sign-in, bundle, or no Genie Code route
-with `on-model-unavailable: fail`); partial setups exit 0 with warnings.
+Exit code is 1 only when the review cannot produce useful results (sign-in or bundle problems);
+partial setups exit 0 with warnings.
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ def run(s: Settings, client: Callable[[str], WorkspaceClient] = lambda p: Worksp
     if route:
         out.append(Result("Genie Code", OK, f"`{route.model}` via {route.label} ({route.host})"))
     else:
-        out.append(Result("Genie Code", FAIL if s.on_model_unavailable == "fail" else WARN, "; ".join(notes)[:300],
+        out.append(Result("Genie Code", WARN, "; ".join(notes)[:300],
                           "Allow the reviewer to use Genie Code through Unity Gateway, set genie-model to a served model, "
                           "or set genie-host to a workspace that serves it. Exact checks still run without it."))
 
