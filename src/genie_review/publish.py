@@ -212,6 +212,17 @@ def overridden() -> bool:
     return any(lb.get("name") == OVERRIDE_LABEL for lb in labels)
 
 
+def failure_reason(findings: list[Finding], fail_on: str) -> str:
+    """Why the check failed, and how to get past it, for the job log and the run summary."""
+    if fail_on == "blocker":
+        n, what = sum(f.merge_impact == "blocker" for f in findings), "blocking"
+    else:
+        limit = SEVERITIES.index(fail_on)
+        n, what = sum(SEVERITIES.index(f.severity) <= limit for f in findings), f"{fail_on} or worse"
+    return (f"{n} {what} issue(s) found (fail-on: {fail_on}). See the review comment on the pull request. "
+            f"To merge anyway, add the `{OVERRIDE_LABEL}` label.")
+
+
 def should_fail(findings: list[Finding], fail_on: str) -> bool:
     if fail_on == "none":
         return False

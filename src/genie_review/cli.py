@@ -6,8 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, config, pipeline
-from .util import log
+from . import __version__, config, pipeline, publish
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -76,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     result = pipeline.run(s, publish_to_github=not a.no_publish)
     print(result.body)
     if result.failed:
-        log(f"Failing: findings at or above '{s.fail_on}'")
+        print(f"::error title=Lakehouse Review::{publish.failure_reason(result.findings, s.fail_on)}")
         return 1
     return 0
 

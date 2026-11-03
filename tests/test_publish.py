@@ -76,3 +76,13 @@ def test_override_label_turns_the_gate_off(monkeypatch, tmp_path):
     assert overridden()
     event.write_text(json.dumps({"pull_request": {"number": 1, "labels": [{"name": "other"}]}}))
     assert not overridden()
+
+
+def test_failure_reason_says_how_many_and_how_to_override():
+    from genie_review.publish import failure_reason
+    blocker = Finding("contract.unknown-object", "critical", "a.sql", 1, "t", "e", [])
+    blocker.merge_impact = "blocker"
+    other = Finding("contract.type-mismatch", "medium", "a.sql", 2, "t", "e", [])
+    assert failure_reason([blocker, other], "blocker").startswith("1 blocking issue(s) found (fail-on: blocker)")
+    assert failure_reason([blocker, other], "medium").startswith("2 medium or worse issue(s)")
+    assert "lakehouse-review-override" in failure_reason([blocker], "blocker")
