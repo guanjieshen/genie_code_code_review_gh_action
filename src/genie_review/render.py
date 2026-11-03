@@ -65,6 +65,7 @@ class Review:
     access_count: int = 0
     route_note: str = ""
     notes: list[str] = field(default_factory=list)
+    overridden: bool = False            # merge gate turned off by the override label
 
 
 # ------------------------------------------------------------------ helpers
@@ -134,10 +135,17 @@ def finding_block(g: Group, ctx: LinkContext, facts: dict[str, Any]) -> str:
         lines += ["", f"**To validate:** {f.validation}"]
     if f.suggestion:
         lines += ["", f"**Recommended fix:** {f.suggestion}"]
+    lines += query_block(f)
     sources = list(dict.fromkeys(src for m in g.findings for src in m.detected_by))
     lines += ["", " · ".join([ctx.link(f.file, f.line), " + ".join(sources), CONFIDENCE_LABEL[g.confidence]])]
     lines += ["", evidence_block(g, facts)]
     return "\n".join(lines)
+
+
+def query_block(f: Finding) -> list[str]:
+    if not f.validation_query:
+        return []
+    return ["", "<details><summary>Query to check this</summary>", "", "```sql", f.validation_query, "```", "", "</details>"]
 
 
 def evidence_block(g: Group, facts: dict[str, Any]) -> str:
@@ -180,6 +188,7 @@ def inline_body(g: Group) -> str:
     lines = [inline_marker(f.check), f"**{ICON[g.severity]} {_cap(g.severity)} — {f.title}**", "", f.explanation]
     if f.suggestion:
         lines += ["", f"**Recommended fix:** {f.suggestion}"]
+    lines += query_block(f)
     lines += ["", f"<sub>Lakehouse Review · {CONFIDENCE_LABEL[g.confidence]} · evidence in the review comment</sub>"]
     return "\n".join(lines)
 
@@ -205,6 +214,8 @@ def markdown(review: Review, ctx: LinkContext, max_summary_lines: int = 5, compa
         if checks != len(groups):
             line += f" ({checks} supporting checks)"
         out.append(line)
+    if review.overridden:
+        out += ["", "> ⚠️ **Merge gate overridden** by the `lakehouse-review-override` label. The check passes; the issues below still apply."]
     gap = not_validated(review)
     if gap:
         out += ["", f"> ℹ️ **Business relationships and definitions were not validated** ({gap}). "

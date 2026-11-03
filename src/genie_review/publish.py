@@ -32,6 +32,17 @@ def clean(text: str, limit: int = 1200) -> str:
     return text.strip()[:limit]
 
 
+WRITE_SQL = re.compile(r"\b(insert|update|delete|merge|drop|create|alter|truncate|grant|revoke|copy|optimize|vacuum|call|refresh)\b", re.I)
+
+
+def safe_query(sql: str, limit: int = 1500) -> str:
+    """A model-written validation query, kept only if it is a single read-only SELECT/WITH."""
+    q = sql.strip().rstrip(";").strip().replace("```", "")
+    if not q or len(q) > limit or ";" in q or not re.match(r"(?is)^(select|with)\b", q) or WRITE_SQL.search(q):
+        return ""
+    return q
+
+
 # ------------------------------------------------------------------ validate + ground
 
 
@@ -39,6 +50,9 @@ def genie_findings(run: GenieRun, plan: list[PlanItem], evidence_ids: set[str]) 
     if not run.output:
         return [], [], ""
     run.output.setdefault("ontology_verdicts", [])   # older outputs had no verdicts
+    for f in run.output.get("findings") or []:
+        if isinstance(f, dict):
+            f.setdefault("validation_query", "")       # optional for older outputs
     notes: list[str] = []
     try:
         jsonschema.validate(run.output, json.loads(resource_text("findings.schema.json")))
@@ -55,7 +69,8 @@ def genie_findings(run: GenieRun, plan: list[PlanItem], evidence_ids: set[str]) 
             notes.append(f"dropped ungrounded finding: {f['title'][:60]}")
             continue
         out.append(Finding(f["check"], f["severity"], f["file"], f["line"], clean(f["title"], 160), clean(f["explanation"]),
-                           grounded, clean(f["suggestion"], 400), f["confidence"], "genie", impact=clean(f.get("impact", ""), 400)))
+                           grounded, clean(f["suggestion"], 400), f["confidence"], "genie", impact=clean(f.get("impact", ""), 400),
+                           validation_query=safe_query(f.get("validation_query", ""))))
     return out, notes, clean(run.output.get("impact_summary", ""), 1500)
 
 
@@ -183,6 +198,29 @@ def set_outputs(**kv: Any) -> None:
         with open(path, "a") as f:
             for k, v in kv.items():
                 f.write(f"{k}={v}\n")
+
+
+OVERRIDE_LABEL = "lakehouse-review-override"
+
+
+def overridden() -> bool:
+    """The pull request carries the override label: the review posts, but the check does not fail."""
+    path = os.environ.get("GITHUB_EVENT_PATH")
+    if not path or not os.path.exists(path):
+        return False
+    labels = (json.load(open(path)).get("pull_request") or {}).get("labels") or []
+    return any(lb.get("name") == OVERRIDE_LABEL for lb in labels)
+
+
+def failure_reason(findings: list[Finding], fail_on: str) -> str:
+    """Why the check failed, and how to get past it, for the job log and the run summary."""
+    if fail_on == "blocker":
+        n, what = sum(f.merge_impact == "blocker" for f in findings), "blocking"
+    else:
+        limit = SEVERITIES.index(fail_on)
+        n, what = sum(SEVERITIES.index(f.severity) <= limit for f in findings), f"{fail_on} or worse"
+    return (f"{n} {what} issue(s) found (fail-on: {fail_on}). See the review comment on the pull request. "
+            f"To merge anyway, add the `{OVERRIDE_LABEL}` label.")
 
 
 def should_fail(findings: list[Finding], fail_on: str) -> bool:

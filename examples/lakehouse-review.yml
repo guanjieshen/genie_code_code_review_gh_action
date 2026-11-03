@@ -3,6 +3,7 @@ name: Lakehouse Review
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]   # labels: the override label takes effect at once
     paths: ["databricks.yml", "resources/**", "src/**", "**/*.sql", "**/*.py", "**/*.ipynb"]
 
 permissions:

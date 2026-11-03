@@ -86,6 +86,7 @@ class Finding:
     affected_objects: list[str] = field(default_factory=list)
     params: dict[str, Any] = field(default_factory=dict)   # structured facts for exact checks (wording.py)
     validation: str = ""            # what still needs checking, for findings that are not confirmed
+    validation_query: str = ""      # read-only SQL the author can run to confirm the finding
     # ---- normalized (normalize.py / correlate.py)
     id: str = ""
     category: str = "other"

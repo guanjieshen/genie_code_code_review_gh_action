@@ -80,6 +80,7 @@ The review is **advisory by default**. Set `fail-on: blocker` once you trust the
 | You want to… | Where to make the change |
 | --- | --- |
 | Fail the check on blocking issues | `fail-on` input, or `fail_on` in `.lakehouse-review/config.yml` |
+| Merge one pull request despite blocking issues | Add the `lakehouse-review-override` label ([how](docs/configuration.md#overriding-the-merge-gate)) |
 | Check joins, grain, and codes against your business definitions | `analysis-depth: detailed`; it uses the Pages and metric views you already have ([docs/ontology.md](docs/ontology.md)) |
 | Give the reviewer team context, such as which catalog is production | `.lakehouse-review/instructions.md` |
 | Turn a check off or change its severity | `checks` in `.lakehouse-review/config.yml` |

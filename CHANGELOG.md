@@ -8,6 +8,12 @@ The `v0` tag always points to the latest v0 release. To pin a release, use its t
 - uses: guanjieshen/genie_code_code_review_gh_action@<commit-sha> # v0.4.0
 ```
 
+## v0.7.0
+
+- **Override label.** With `fail-on` set, the `lakehouse-review-override` label on a pull request makes the check pass. The review still posts every issue and notes the override. Add `labeled` and `unlabeled` to the workflow's `pull_request` types so the label takes effect without a new push.
+- **Validation queries.** Correctness, semantics, and lineage issues can include a read-only SQL query the author can run to confirm the problem. Only a single `SELECT` or `WITH` query is shown.
+- **Clearer failures.** A failed check says how many issues failed it and how to override, as an error annotation on the run.
+
 ## v0.6.0
 
 - **Comments on code lines.** Each issue whose line is part of the diff also gets a comment on that line, with the severity, the problem, and the recommended fix. Each issue is commented once, even across pushes. Turn it off with `inline-comments: false`.

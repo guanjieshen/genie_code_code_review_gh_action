@@ -278,7 +278,8 @@ def _report(s: Settings, imp: impact.ImpactResult, ev: evidence.Evidence, plan: 
         hidden=len(findings) - sum(len(g.findings) for g in groups),
         coverage=checks.coverage(plan, findings, enabled, ev, stage.ran),
         capabilities=capabilities.build(imp.graph.to_dict(), ev.facts, findings, ev.gaps, stage.status, genie_one_status),
-        facts=ev.facts, access_md=ev.access.render(), access_count=len(ev.access.gaps), route_note=stage.route_note, notes=notes)
+        facts=ev.facts, access_md=ev.access.render(), access_count=len(ev.access.gaps), route_note=stage.route_note, notes=notes,
+        overridden=s.fail_on != "none" and publish.overridden())
     ctx = link_context(s)
     body, comment = render.markdown(review, ctx), render.fit_comment(review, ctx)
     if comment != body:
@@ -289,7 +290,7 @@ def _report(s: Settings, imp: impact.ImpactResult, ev: evidence.Evidence, plan: 
         _comment_on_lines(s, groups)
     if ev.access.gaps:
         print(f"::warning title=Lakehouse Review::The reviewer could not read {len(ev.access.gaps)} thing(s). See the PR comment for the grants to add.")
-    return Result(findings, body, stage.route_note, url, publish.should_fail(findings, s.fail_on), notes)
+    return Result(findings, body, stage.route_note, url, publish.should_fail(findings, s.fail_on) and not review.overridden, notes)
 
 
 def _comment_on_lines(s: Settings, groups: list) -> None:
