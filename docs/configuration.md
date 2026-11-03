@@ -53,6 +53,24 @@ These rules are fixed, so every team reads reviews the same way:
 - **Needs attention:** up to 3 blocking or action-required issues with high confidence or better.
 - **Blocker:** a **confirmed critical** issue about a data contract, lineage, or deployment. Blockers fail the check only when `fail_on: blocker`.
 
+## Overriding the merge gate
+
+When `fail_on` is set, a team can still merge a pull request with known issues: add the **`lakehouse-review-override`** label. The review still posts every issue, notes that the gate was overridden, and the check passes.
+
+So that adding or removing the label takes effect without a new push, run the workflow on label changes too:
+
+```yaml
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+```
+
+Restrict who can add labels if the override needs approval, for example with a required reviewer or a CODEOWNERS rule.
+
+## Validation queries
+
+For correctness, semantics, and lineage issues, the review can include a **Query to check this**: a read-only SQL query the author can run to see the problem in numbers, such as rows a join drops or a total with and without the governed filters. The reviewer never runs it. Only a single `SELECT` or `WITH` query is ever shown.
+
 ## Team instructions
 
 `instructions.md` gives the reviewer context it cannot get from the workspace. Keep it short and factual:
